@@ -759,7 +759,7 @@
       <div class="step-num">1</div>
       <div class="step-content">
         <h3>Open the Daily Roster Report in HotSchedules</h3>
-        <p>In HotSchedules, navigate to the <strong>Daily Roster Report</strong> — the web-based version, not the PDF. Set the date picker to the first day of the week you want to check. Make sure the Schedules filter at the top shows all schedules selected.</p>
+        <p>In HotSchedules, navigate to the <strong>Daily Roster Report</strong> — the web-based version, not the PDF. It doesn't matter which day of the week is selected — the script will find Monday automatically. Make sure the Schedules filter at the top shows all schedules selected.</p>
       </div>
     </div>
 
@@ -776,8 +776,8 @@
       <div class="step-content">
         <h3>Run the Full Week script</h3>
         <p>Go to the <strong>Console Scripts</strong> tab in this tool and click <strong>Copy</strong> next to the Full Week script. Switch back to HotSchedules, click inside the console, paste, and press Enter.</p>
-        <p>The script will automatically step through Monday to Saturday, scrape each day, and copy the full week to your clipboard when done. Watch the console for progress — it takes about 15–20 seconds. You'll see a green "Done!" message when it's finished.</p>
-        <p style="color:var(--accent2);font-size:12px;">Keep the HotSchedules tab active while the script runs — switching away may slow it down.</p>
+        <p>The script will automatically step through Monday to Saturday, scraping each day. <strong>You'll see the page flipping between dates on its own — this is normal.</strong> Watch the console for green checkmarks as each day completes. The whole process takes about 15–20 seconds. When it's done you'll see a green "Done!" message and the data is automatically copied to your clipboard.</p>
+        <p style="color:var(--accent2);font-size:12px;">Keep the HotSchedules tab open and visible while the script runs — don't switch to another tab or the timing may be off.</p>
       </div>
     </div>
 
@@ -785,31 +785,31 @@
       <div class="step-num">4</div>
       <div class="step-content">
         <h3>Paste into the Run Check tab</h3>
-        <p>Switch to the <strong>Run Check</strong> tab in this tool. Click into the large text box on the left and paste (Cmd+V or Ctrl+V). Then click <strong>Run Check</strong>.</p>
-        <p style="color:var(--muted);font-size:12px;">If the clipboard copy was blocked, the data will be printed in the console — select it all, copy, and paste manually.</p>
+        <p>Switch to the <strong>Run Check</strong> tab in this tool. Click into the large text box on the left and paste (Cmd+V or Ctrl+V). Then click <strong>Run Check</strong>. Results appear within a couple of seconds.</p>
+        <p style="color:var(--muted);font-size:12px;">If the clipboard copy was blocked by the browser, the data will be printed in the console — select it all, copy, and paste manually.</p>
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="step-num">5</div>
+      <div class="step-content">
+        <h3>Read the results</h3>
+        <p>Results are organized by day tab, then by section (FOH, FOH Leadership, BOH, BOH Leadership, Financial). Each placement slot shows one of three statuses:</p>
+        <div style="margin:10px 0 10px 0;display:flex;flex-direction:column;gap:6px;">
+          <div style="display:flex;align-items:center;gap:10px;"><span class="status-badge badge-ok">✓ OK</span><span>The slot is fully covered for the day.</span></div>
+          <div style="display:flex;align-items:center;gap:10px;"><span class="status-badge badge-partial">~ Partial</span><span>Some coverage exists but there's a gap — the row shows exactly which time window is uncovered.</span></div>
+          <div style="display:flex;align-items:center;gap:10px;"><span class="status-badge badge-missing">✗ Missing</span><span>No scheduled shifts cover this slot at all.</span></div>
+        </div>
+        <p>At the bottom of each day you'll also see <strong>Extra Coverage</strong> (scheduled time beyond what any slot needs — potential hours to cut) and <strong>Unmatched Shifts</strong> (shifts that don't overlap any slot — typically specialty codes like Cow or Administrative that aren't counted in placement).</p>
       </div>
     </div>
 
     <div class="step">
       <div class="step-num">6</div>
       <div class="step-content">
-        <h3>Read the results</h3>
-        <p>Results are organized by day, then by section (FOH, FOH Leadership, BOH, BOH Leadership). Each placement slot shows one of three statuses:</p>
-        <div style="margin:10px 0 10px 0;display:flex;flex-direction:column;gap:6px;">
-          <div style="display:flex;align-items:center;gap:10px;"><span class="status-badge badge-ok">✓ OK</span><span>The slot is fully covered for the day.</span></div>
-          <div style="display:flex;align-items:center;gap:10px;"><span class="status-badge badge-partial">~ Partial</span><span>Some coverage exists but there's a gap — the row will show exactly which time window is uncovered.</span></div>
-          <div style="display:flex;align-items:center;gap:10px;"><span class="status-badge badge-missing">✗ Missing</span><span>No scheduled shifts cover this slot at all.</span></div>
-        </div>
-        <p>At the bottom of each day you'll also see <strong>Extra Coverage</strong> (shifts scheduled beyond what any slot requires — potential hours to trim) and <strong>Unmatched Shifts</strong> (shifts that don't overlap any placement slot — usually Other Store shifts, which are expected and can be ignored).</p>
-      </div>
-    </div>
-
-    <div class="step">
-      <div class="step-num">7</div>
-      <div class="step-content">
         <h3>Updating the placement (a few times a year)</h3>
-        <p>When the placement changes, open the <strong>Placement</strong> tab in Google Sheets, go to <strong>File → Download → Comma Separated Values (.csv)</strong>, then come back here and click the relevant day-type button under <em>Import CSV quick-load</em> on the Run Check tab (Mon–Wed, Thu–Fri, or Sat). The new placement will save automatically and be used for all future checks.</p>
-        <p style="color:var(--muted);font-size:12px;">Your placement is saved in the browser on this computer. If you switch computers or clear your browser data, you'll need to re-import the CSVs.</p>
+        <p>When the placement changes in Google Sheets, come to the <strong>Run Check</strong> or <strong>Placement</strong> tab and click <strong>Sync from Sheets</strong>. The URL is already saved — just click the button and all three day-type profiles update automatically.</p>
+        <p style="color:var(--muted);font-size:12px;">Your placement is saved in this browser. If you're on a new computer, paste the Sheets URL once and click Sync — it'll be remembered from then on.</p>
       </div>
     </div>
 
