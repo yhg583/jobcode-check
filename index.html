@@ -1658,8 +1658,37 @@ function runCheck() {
 
     const slotResults = [];
 
+    // Helper: check if a slot name declares a specific day restriction
+    // Conventions: "(Mon only)", "(Mon)", "- Mondays only", "- Mondays", etc.
+    function slotAppliesToDay(slotName, dayLabel) {
+      const n = slotName.toLowerCase();
+      const dayAbbr = dayLabel.split(' ')[0].toLowerCase(); // e.g. "mon", "tue"
+      const dayMap = { mon: 'mon', tue: 'tue', wed: 'wed', thu: 'thu', fri: 'fri', sat: 'sat', sun: 'sun' };
+      const today = dayMap[dayAbbr] || dayAbbr;
+
+      // Check for day restriction patterns
+      const patterns = [
+        /\((mon|tue|wed|thu|fri|sat|sun)s?\s*only\)/i,
+        /\((mon|tue|wed|thu|fri|sat|sun)s?\)/i,
+        /-\s*(mon|tue|wed|thu|fri|sat|sun)s?\s*only/i,
+        /-\s*(mon|tue|wed|thu|fri|sat|sun)days?\s*only/i,
+      ];
+      // Full day name to abbreviation
+      const fullToAbbr = { monday:'mon', tuesday:'tue', wednesday:'wed', thursday:'thu', friday:'fri', saturday:'sat', sunday:'sun' };
+
+      for (const pat of patterns) {
+        const m = n.match(pat);
+        if (m) {
+          const restricted = fullToAbbr[m[1].toLowerCase()] || m[1].toLowerCase().slice(0,3);
+          return restricted === today;
+        }
+      }
+      return true; // no restriction — applies to all days
+    }
+
     const slotWindows = [];
     for (const slot of placement) {
+      if (!slotAppliesToDay(slot.name, day)) continue; // skip day-restricted slots
       for (const window of slot.windows) {
         slotWindows.push({ slot, window });
       }
