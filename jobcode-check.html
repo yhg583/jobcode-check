@@ -1,0 +1,1931 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Job Code Check</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap');
+
+  :root {
+    --bg: #0f0f0f;
+    --surface: #1a1a1a;
+    --surface2: #242424;
+    --border: #2e2e2e;
+    --accent: #e8412a;
+    --accent2: #f59e0b;
+    --text: #e8e8e8;
+    --muted: #666;
+    --foh: #3b82f6;
+    --boh: #10b981;
+    --lead: #a855f7;
+    --gap: 2px; /* allowed gap in minutes between chained shifts */
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'IBM Plex Sans', sans-serif;
+    font-size: 14px;
+    min-height: 100vh;
+  }
+
+  header {
+    border-bottom: 1px solid var(--border);
+    padding: 18px 28px;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+  }
+
+  .logo {
+    width: 10px; height: 10px;
+    background: var(--accent);
+    border-radius: 50%;
+    box-shadow: 0 0 12px var(--accent);
+  }
+
+  header h1 {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 13px;
+    font-weight: 500;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--text);
+  }
+
+  header span {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    color: var(--muted);
+    margin-left: auto;
+  }
+
+  .tabs {
+    display: flex;
+    border-bottom: 1px solid var(--border);
+    padding: 0 28px;
+  }
+
+  .tab {
+    padding: 12px 20px;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    cursor: pointer;
+    color: var(--muted);
+    border-bottom: 2px solid transparent;
+    margin-bottom: -1px;
+    transition: color 0.15s, border-color 0.15s;
+  }
+
+  .tab.active { color: var(--text); border-bottom-color: var(--accent); }
+  .tab:hover:not(.active) { color: var(--text); }
+
+  .panel { display: none; padding: 28px; }
+  .panel.active { display: block; }
+
+  /* Instructions panel */
+  .step {
+    display: flex;
+    gap: 16px;
+    margin-bottom: 24px;
+  }
+
+  .step-num {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--accent);
+    width: 20px;
+    flex-shrink: 0;
+    padding-top: 2px;
+  }
+
+  .step-content h3 {
+    font-size: 13px;
+    font-weight: 500;
+    margin-bottom: 6px;
+  }
+
+  .step-content p {
+    color: var(--muted);
+    font-size: 12px;
+    line-height: 1.6;
+    margin-bottom: 8px;
+  }
+
+  .code-block {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 14px 16px;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    line-height: 1.6;
+    color: #a8d8a8;
+    position: relative;
+    white-space: pre-wrap;
+    word-break: break-all;
+  }
+
+  .copy-btn {
+    position: absolute;
+    top: 8px; right: 8px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    color: var(--muted);
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px;
+    padding: 4px 8px;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: color 0.15s, border-color 0.15s;
+  }
+
+  .copy-btn:hover { color: var(--text); border-color: var(--muted); }
+  .copy-btn.copied { color: var(--boh); border-color: var(--boh); }
+
+  /* Check panel */
+  .two-col {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+    margin-bottom: 24px;
+  }
+
+  .input-group label {
+    display: block;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 8px;
+  }
+
+  textarea, input[type="file"] {
+    width: 100%;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text);
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    padding: 12px;
+    outline: none;
+    transition: border-color 0.15s;
+    resize: vertical;
+  }
+
+  textarea:focus { border-color: var(--accent); }
+
+  .file-drop {
+    border: 1px dashed var(--border);
+    border-radius: 6px;
+    padding: 20px;
+    text-align: center;
+    cursor: pointer;
+    transition: border-color 0.15s, background 0.15s;
+    position: relative;
+  }
+
+  .file-drop:hover, .file-drop.dragover {
+    border-color: var(--accent);
+    background: rgba(232,65,42,0.05);
+  }
+
+  .file-drop input { display: none; }
+
+  .file-drop p {
+    color: var(--muted);
+    font-size: 12px;
+  }
+
+  .file-drop .file-name {
+    color: var(--accent2);
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    margin-top: 4px;
+  }
+
+  .btn {
+    background: var(--accent);
+    color: white;
+    border: none;
+    padding: 10px 24px;
+    border-radius: 6px;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 12px;
+    font-weight: 500;
+    letter-spacing: 0.06em;
+    cursor: pointer;
+    transition: opacity 0.15s;
+  }
+
+  .btn:hover { opacity: 0.85; }
+  .btn:disabled { opacity: 0.35; cursor: not-allowed; }
+
+  .btn-secondary {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--muted);
+    padding: 8px 16px;
+    border-radius: 6px;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    cursor: pointer;
+    transition: color 0.15s, border-color 0.15s;
+  }
+  .btn-secondary:hover { color: var(--text); border-color: var(--muted); }
+
+  /* Results */
+  #results { margin-top: 8px; }
+
+  .day-section {
+    margin-bottom: 28px;
+  }
+
+  .day-header {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--accent2);
+    padding: 8px 0;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 12px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .day-stats {
+    font-weight: 400;
+    color: var(--muted);
+    font-size: 10px;
+  }
+
+  .section-header {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    margin: 14px 0 8px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .tag-foh { color: var(--foh); }
+  .tag-boh { color: var(--boh); }
+  .tag-lead { color: var(--lead); }
+
+  .slot-row {
+    display: grid;
+    grid-template-columns: 180px 1fr auto;
+    gap: 12px;
+    align-items: start;
+    padding: 7px 10px;
+    border-radius: 4px;
+    margin-bottom: 3px;
+    background: var(--surface);
+    border: 1px solid transparent;
+    transition: border-color 0.1s;
+  }
+
+  .slot-row:hover { border-color: var(--border); }
+  .slot-row.ok { }
+  .slot-row.partial { border-color: rgba(245,158,11,0.3); background: rgba(245,158,11,0.04); }
+  .slot-row.missing { border-color: rgba(232,65,42,0.25); background: rgba(232,65,42,0.04); }
+  .slot-row.overage { border-color: rgba(168,85,247,0.25); background: rgba(168,85,247,0.04); }
+
+  .slot-name {
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--text);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .slot-target {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px;
+    color: var(--muted);
+    margin-top: 2px;
+  }
+
+  .chain-display {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 3px;
+    align-items: center;
+  }
+
+  .chain-seg {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    padding: 2px 7px;
+    font-size: 10px;
+    white-space: nowrap;
+  }
+
+  .chain-seg.foh { border-color: rgba(59,130,246,0.4); color: #93c5fd; }
+  .chain-seg.boh { border-color: rgba(16,185,129,0.4); color: #6ee7b7; }
+  .chain-seg.lead { border-color: rgba(168,85,247,0.4); color: #d8b4fe; }
+  .chain-seg.other { border-color: rgba(245,158,11,0.3); color: #fcd34d; }
+
+  .chain-arrow {
+    color: var(--muted);
+    font-size: 10px;
+  }
+
+  .gap-note {
+    font-size: 10px;
+    color: #fca5a5;
+    font-family: 'IBM Plex Mono', monospace;
+    padding: 1px 5px;
+    background: rgba(232,65,42,0.12);
+    border-radius: 3px;
+  }
+
+  .status-badge {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px;
+    padding: 2px 8px;
+    border-radius: 3px;
+    white-space: nowrap;
+    align-self: start;
+  }
+
+  .badge-ok { background: rgba(16,185,129,0.15); color: #6ee7b7; }
+  .badge-partial { background: rgba(245,158,11,0.15); color: #fcd34d; }
+  .badge-missing { background: rgba(232,65,42,0.15); color: #fca5a5; }
+  .badge-overage { background: rgba(168,85,247,0.15); color: #d8b4fe; }
+  .badge-unmatched { background: rgba(232,65,42,0.1); color: var(--muted); }
+
+  .unmatched-section {
+    margin-top: 14px;
+    padding: 12px 14px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+  }
+
+  .unmatched-section h4 {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 8px;
+  }
+
+  .unmatched-shift {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px;
+    padding: 2px 8px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    margin: 2px;
+    color: var(--muted);
+  }
+
+  .summary-bar {
+    display: flex;
+    gap: 20px;
+    padding: 14px 0;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 24px;
+    flex-wrap: wrap;
+  }
+
+  .summary-stat {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .summary-stat .val {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 22px;
+    font-weight: 600;
+    line-height: 1;
+  }
+
+  .summary-stat .lbl {
+    font-size: 10px;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+  }
+
+  .s-ok { color: var(--boh); }
+  .s-partial { color: var(--accent2); }
+  .s-missing { color: var(--accent); }
+
+  .error-msg {
+    padding: 14px;
+    background: rgba(232,65,42,0.1);
+    border: 1px solid rgba(232,65,42,0.3);
+    border-radius: 6px;
+    color: #fca5a5;
+    font-size: 12px;
+    font-family: 'IBM Plex Mono', monospace;
+  }
+
+  .info-msg {
+    padding: 14px;
+    background: rgba(59,130,246,0.08);
+    border: 1px solid rgba(59,130,246,0.2);
+    border-radius: 6px;
+    color: #93c5fd;
+    font-size: 12px;
+    font-family: 'IBM Plex Mono', monospace;
+  }
+
+  .actions-row {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    margin-bottom: 24px;
+    flex-wrap: wrap;
+  }
+
+  .gap-control {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-left: auto;
+  }
+
+  .gap-control label {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+  }
+
+  .gap-control input[type="number"] {
+    width: 60px;
+    padding: 6px 8px;
+    font-size: 12px;
+    text-align: center;
+    resize: none;
+  }
+
+  .divider { width: 1px; height: 16px; background: var(--border); }
+
+  /* Placement editor */
+  .placement-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+    margin-bottom: 16px;
+  }
+
+  .placement-table th {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--muted);
+    text-align: left;
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--border);
+    font-weight: 400;
+  }
+
+  .placement-table td {
+    padding: 6px 10px;
+    border-bottom: 1px solid rgba(46,46,46,0.5);
+    vertical-align: middle;
+  }
+
+  .placement-table td input {
+    background: transparent;
+    border: 1px solid transparent;
+    padding: 3px 6px;
+    border-radius: 3px;
+    color: var(--text);
+    font-size: 12px;
+    font-family: 'IBM Plex Sans', sans-serif;
+    width: 100%;
+    outline: none;
+    transition: border-color 0.15s, background 0.15s;
+  }
+
+  .placement-table td input:focus {
+    border-color: var(--border);
+    background: var(--surface2);
+  }
+
+  .del-btn {
+    background: none;
+    border: none;
+    color: var(--border);
+    cursor: pointer;
+    font-size: 16px;
+    line-height: 1;
+    padding: 2px 6px;
+    border-radius: 3px;
+    transition: color 0.15s;
+  }
+  .del-btn:hover { color: var(--accent); }
+
+  .type-select {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    color: var(--text);
+    font-size: 11px;
+    font-family: 'IBM Plex Mono', monospace;
+    padding: 3px 6px;
+    border-radius: 3px;
+    outline: none;
+    cursor: pointer;
+  }
+
+  .type-select option { background: var(--surface2); }
+
+  .scroll-x { overflow-x: auto; }
+
+  small { color: var(--muted); font-size: 11px; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo"></div>
+  <h1>Job Code Check</h1>
+  <span>CFA Scheduling Tool</span>
+</header>
+
+<div class="tabs">
+  <div class="tab active" onclick="switchTab('check')">Run Check</div>
+  <div class="tab" onclick="switchTab('placement')">Placement</div>
+  <div class="tab" onclick="switchTab('scripts')">Console Scripts</div>
+  <div class="tab" onclick="switchTab('help')">How To Use</div>
+</div>
+
+<!-- CHECK PANEL -->
+<div class="panel active" id="panel-check">
+  <div class="two-col">
+    <div class="input-group">
+      <label>Paste Schedule Data (from console)</label>
+      <textarea id="scheduleInput" rows="8" placeholder='Paste JSON output from the "Dump Week" console script here...'></textarea>
+    </div>
+    <div class="input-group">
+      <label>Placement Status</label>
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:14px;font-family:'IBM Plex Mono',monospace;font-size:11px;line-height:2;">
+        <div>Mon–Wed: <span id="status-mon_wed" style="color:var(--muted)">not loaded</span></div>
+        <div>Thu–Fri: <span id="status-thu_fri" style="color:var(--muted)">not loaded</span></div>
+        <div>Saturday: <span id="status-sat" style="color:var(--muted)">not loaded</span></div>
+      </div>
+      <div style="margin-top:8px;">
+        <small style="color:var(--muted)">Manage profiles in the <a href="#" onclick="switchTab('placement');return false;" style="color:var(--accent2);text-decoration:none;">Placement tab</a>.</small>
+        <div style="margin-top:10px;display:flex;flex-direction:column;gap:8px;">
+          <div style="display:flex;gap:6px;align-items:center;">
+            <input id="sheetsUrl" type="text" placeholder="Paste Google Sheets URL to sync placement…" style="flex:1;font-size:11px;padding:6px 10px;">
+            <button class="btn" onclick="syncFromSheets()" style="white-space:nowrap;font-size:11px;padding:6px 14px;">Sync from Sheets</button>
+          </div>
+          <div id="syncStatus" style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--muted);min-height:14px;"></div>
+          <small style="color:var(--muted)">Or import CSVs manually:</small>
+          <div style="display:flex;gap:6px;flex-wrap:wrap;">
+            <button class="btn-secondary" onclick="document.getElementById('quickImport-mon_wed').click()" style="font-size:10px;padding:4px 10px;">Mon–Wed CSV</button>
+            <button class="btn-secondary" onclick="document.getElementById('quickImport-thu_fri').click()" style="font-size:10px;padding:4px 10px;">Thu–Fri CSV</button>
+            <button class="btn-secondary" onclick="document.getElementById('quickImport-sat').click()" style="font-size:10px;padding:4px 10px;">Sat CSV</button>
+            <input type="file" id="quickImport-mon_wed" accept=".csv" style="display:none" onchange="quickImportCSV(this,'mon_wed')">
+            <input type="file" id="quickImport-thu_fri" accept=".csv" style="display:none" onchange="quickImportCSV(this,'thu_fri')">
+            <input type="file" id="quickImport-sat" accept=".csv" style="display:none" onchange="quickImportCSV(this,'sat')">
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="actions-row">
+    <button class="btn" onclick="runCheck()">Run Check</button>
+    <button class="btn-secondary" onclick="clearAll()">Clear</button>
+    <div class="divider"></div>
+    <div class="gap-control">
+      <label>Gap tolerance (min)</label>
+      <input type="number" id="gapTolerance" value="15" min="0" max="60">
+    </div>
+  </div>
+
+  <div id="results"></div>
+</div>
+
+<!-- PLACEMENT EDITOR -->
+<div class="panel" id="panel-placement">
+  <p style="color:var(--muted);font-size:12px;margin-bottom:16px;">
+    Three placement profiles — each day is checked against its own profile.
+    CSV format: <code style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--accent2)">Name,Start,End,Type,Split</code>
+    — Type: FOH / BOH / Lead-FOH / Lead-BOH / Other.
+  </p>
+
+  <!-- Profile sub-tabs -->
+  <div style="display:flex;gap:0;margin-bottom:20px;border-bottom:1px solid var(--border);">
+    <div class="profile-tab active" onclick="switchProfile('mon_wed')" id="ptab-mon_wed" style="padding:8px 20px;font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:0.08em;text-transform:uppercase;cursor:pointer;color:var(--muted);border-bottom:2px solid transparent;margin-bottom:-1px;transition:color 0.15s,border-color 0.15s;">Mon–Wed</div>
+    <div class="profile-tab" onclick="switchProfile('thu_fri')" id="ptab-thu_fri" style="padding:8px 20px;font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:0.08em;text-transform:uppercase;cursor:pointer;color:var(--muted);border-bottom:2px solid transparent;margin-bottom:-1px;transition:color 0.15s,border-color 0.15s;">Thu–Fri</div>
+    <div class="profile-tab" onclick="switchProfile('sat')" id="ptab-sat" style="padding:8px 20px;font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:0.08em;text-transform:uppercase;cursor:pointer;color:var(--muted);border-bottom:2px solid transparent;margin-bottom:-1px;transition:color 0.15s,border-color 0.15s;">Saturday</div>
+  </div>
+
+  <div style="display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap;">
+    <button class="btn" onclick="addPlacementRow()">+ Add Slot</button>
+    <button class="btn-secondary" onclick="exportPlacementCSV()">Export CSV</button>
+    <button class="btn-secondary" onclick="document.getElementById('importPlace').click()">Import CSV</button>
+    <input type="file" id="importPlace" accept=".csv" style="display:none" onchange="importPlacementCSV(this)">
+  </div>
+
+  <div class="scroll-x">
+    <table class="placement-table" id="placementTable">
+      <thead>
+        <tr>
+          <th>Slot Name</th>
+          <th>Type</th>
+          <th>Windows (semicolon-sep)</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody id="placementBody"></tbody>
+    </table>
+  </div>
+</div>
+
+<!-- SCRIPTS PANEL -->
+<div class="panel" id="panel-scripts">
+  <div class="step">
+    <div class="step-num">1</div>
+    <div class="step-content">
+      <h3>Navigate to the HotSchedules Daily Report</h3>
+      <p>Open the web-based Daily Report (not the PDF). Set the date picker to <strong>any day in the week</strong> you want to check — the script will find Monday automatically. Make sure all schedules are selected in the Schedules filter.</p>
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="step-num">2</div>
+    <div class="step-content">
+      <h3>Open DevTools Console and run the Full Week script</h3>
+      <p>Press <strong>F12</strong> → Console tab. Paste the script below and hit Enter. It will automatically step through Mon–Sat, scrape each day, then copy the full week to your clipboard. Watch the console for progress — it takes about 10–15 seconds.</p>
+      <div class="code-block" id="fullWeekScript">
+        <button class="copy-btn" onclick="copyCode('fullWeekScript-src', this)">Copy</button>
+        <pre id="fullWeekScript-src" style="margin:0;white-space:pre-wrap;word-break:break-all;"></pre>
+      </div>
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="step-num">3</div>
+    <div class="step-content">
+      <h3>Paste into the Run Check tab</h3>
+      <p>Switch to the <strong>Run Check</strong> tab, paste (Cmd+V / Ctrl+V) into the Schedule Data box, and hit <strong>Run Check</strong>. If the clipboard copy was blocked, the data will be printed in the console — copy it manually from there.</p>
+    </div>
+  </div>
+
+  <div style="margin-top:32px;padding:14px 16px;background:var(--surface);border:1px solid var(--border);border-radius:6px;margin-bottom:24px;">
+    <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:0.1em;text-transform:uppercase;color:var(--muted);margin-bottom:12px;">Troubleshooting tools</div>
+
+    <p style="font-size:12px;color:var(--muted);margin-bottom:8px;">Re-run a single day (overwrites that day's data):</p>
+    <div class="code-block" id="scrapeScript" style="margin-bottom:16px;">
+      <button class="copy-btn" onclick="copyCode('scrapeScript-src', this)">Copy</button>
+      <pre id="scrapeScript-src" style="margin:0;white-space:pre-wrap;word-break:break-all;"></pre>
+    </div>
+
+    <p style="font-size:12px;color:var(--muted);margin-bottom:8px;">Manually dump stored data to clipboard:</p>
+    <div class="code-block" id="dumpScript" style="margin-bottom:16px;">
+      <button class="copy-btn" onclick="copyCode('dumpScript-src', this)">Copy</button>
+      <pre id="dumpScript-src" style="margin:0;white-space:pre-wrap;word-break:break-all;"></pre>
+    </div>
+
+    <p style="font-size:12px;color:var(--muted);margin-bottom:8px;">Clear a specific day:</p>
+    <div class="code-block" id="clearDayScript" style="margin-bottom:16px;">
+      <button class="copy-btn" onclick="copyCode('clearDayScript-src', this)">Copy</button>
+      <pre id="clearDayScript-src" style="margin:0;white-space:pre-wrap;word-break:break-all;"></pre>
+    </div>
+
+    <p style="font-size:12px;color:var(--muted);margin-bottom:8px;">Clear everything and start fresh:</p>
+    <div class="code-block" id="clearAllScript">
+      <button class="copy-btn" onclick="copyCode('clearAllScript-src', this)">Copy</button>
+      <pre id="clearAllScript-src" style="margin:0;white-space:pre-wrap;word-break:break-all;"></pre>
+    </div>
+  </div>
+</div>
+
+<!-- HELP PANEL -->
+<div class="panel" id="panel-help">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:24px;flex-wrap:wrap;gap:12px;">
+    <div></div>
+    <button class="btn-secondary" onclick="printHelp()">🖨 Print / Save as PDF</button>
+  </div>
+
+  <div id="help-content" style="max-width:720px;line-height:1.75;font-size:13px;">
+
+    <h2 style="font-family:'IBM Plex Mono',monospace;font-size:16px;font-weight:600;margin-bottom:20px;color:var(--text);">Job Code Check — How To Use</h2>
+    <p style="color:var(--muted);margin-bottom:28px;font-size:12px;">This tool checks whether a week's HotSchedules schedule covers all the placement slots — the ideal staffing template for each day type. It tells you what's fully covered, what's partially covered, and what's missing entirely.</p>
+
+    <div class="step">
+      <div class="step-num">1</div>
+      <div class="step-content">
+        <h3>Open the Daily Roster Report in HotSchedules</h3>
+        <p>In HotSchedules, navigate to the <strong>Daily Roster Report</strong> — the web-based version, not the PDF. Set the date picker to the first day of the week you want to check. Make sure the Schedules filter at the top shows all schedules selected.</p>
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="step-num">2</div>
+      <div class="step-content">
+        <h3>Open the browser console</h3>
+        <p>Press <strong>F12</strong> on your keyboard (or right-click anywhere on the page and choose <em>Inspect</em>, then click the <strong>Console</strong> tab at the top of the panel that opens).</p>
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="step-num">3</div>
+      <div class="step-content">
+        <h3>Run the Full Week script</h3>
+        <p>Go to the <strong>Console Scripts</strong> tab in this tool and click <strong>Copy</strong> next to the Full Week script. Switch back to HotSchedules, click inside the console, paste, and press Enter.</p>
+        <p>The script will automatically step through Monday to Saturday, scrape each day, and copy the full week to your clipboard when done. Watch the console for progress — it takes about 15–20 seconds. You'll see a green "Done!" message when it's finished.</p>
+        <p style="color:var(--accent2);font-size:12px;">Keep the HotSchedules tab active while the script runs — switching away may slow it down.</p>
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="step-num">4</div>
+      <div class="step-content">
+        <h3>Paste into the Run Check tab</h3>
+        <p>Switch to the <strong>Run Check</strong> tab in this tool. Click into the large text box on the left and paste (Cmd+V or Ctrl+V). Then click <strong>Run Check</strong>.</p>
+        <p style="color:var(--muted);font-size:12px;">If the clipboard copy was blocked, the data will be printed in the console — select it all, copy, and paste manually.</p>
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="step-num">6</div>
+      <div class="step-content">
+        <h3>Read the results</h3>
+        <p>Results are organized by day, then by section (FOH, FOH Leadership, BOH, BOH Leadership). Each placement slot shows one of three statuses:</p>
+        <div style="margin:10px 0 10px 0;display:flex;flex-direction:column;gap:6px;">
+          <div style="display:flex;align-items:center;gap:10px;"><span class="status-badge badge-ok">✓ OK</span><span>The slot is fully covered for the day.</span></div>
+          <div style="display:flex;align-items:center;gap:10px;"><span class="status-badge badge-partial">~ Partial</span><span>Some coverage exists but there's a gap — the row will show exactly which time window is uncovered.</span></div>
+          <div style="display:flex;align-items:center;gap:10px;"><span class="status-badge badge-missing">✗ Missing</span><span>No scheduled shifts cover this slot at all.</span></div>
+        </div>
+        <p>At the bottom of each day you'll also see <strong>Extra Coverage</strong> (shifts scheduled beyond what any slot requires — potential hours to trim) and <strong>Unmatched Shifts</strong> (shifts that don't overlap any placement slot — usually Other Store shifts, which are expected and can be ignored).</p>
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="step-num">7</div>
+      <div class="step-content">
+        <h3>Updating the placement (a few times a year)</h3>
+        <p>When the placement changes, open the <strong>Placement</strong> tab in Google Sheets, go to <strong>File → Download → Comma Separated Values (.csv)</strong>, then come back here and click the relevant day-type button under <em>Import CSV quick-load</em> on the Run Check tab (Mon–Wed, Thu–Fri, or Sat). The new placement will save automatically and be used for all future checks.</p>
+        <p style="color:var(--muted);font-size:12px;">Your placement is saved in the browser on this computer. If you switch computers or clear your browser data, you'll need to re-import the CSVs.</p>
+      </div>
+    </div>
+
+    <div style="margin-top:32px;padding:14px 16px;background:var(--surface);border:1px solid var(--border);border-radius:6px;">
+      <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:0.1em;text-transform:uppercase;color:var(--muted);margin-bottom:8px;">Quick Reference — Gap Tolerance</div>
+      <p style="font-size:12px;">The <strong>Gap Tolerance</strong> setting (top right of Run Check) controls how many minutes of uncovered time is still considered "OK." The default is 15 minutes — so if one person's shift ends at 2:00p and the next starts at 2:10p, that gap won't trigger a warning. Set it to 0 for strict back-to-back checking.</p>
+    </div>
+
+  </div>
+</div>
+
+<script>
+// ─── Tab switching ───────────────────────────────────────────────────────────
+function switchTab(id) {
+  document.querySelectorAll('.tab').forEach((t,i) => {
+    const ids = ['check','placement','scripts','help'];
+    t.classList.toggle('active', ids[i] === id);
+  });
+  document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+  document.getElementById('panel-' + id).classList.add('active');
+}
+
+// ─── Copy code block ─────────────────────────────────────────────────────────
+// ─── Console script content ───────────────────────────────────────────────────
+const SCRIPTS = {
+  'fullWeekScript-src': `(function(){
+  const dayNames = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+
+  function parseDateLabel(str) {
+    if (!str) return null;
+    const d = new Date(str);
+    if (isNaN(d)) return null;
+    return dayNames[d.getDay()] + ' ' + (d.getMonth()+1) + '/' + d.getDate();
+  }
+
+  function getDateInput() {
+    return document.querySelector('input.datepicker, input[name="datepicker"], div[data-group="datepicker"] input');
+  }
+
+  function scrapeCurrentDay() {
+    const dateInput = getDateInput();
+    const dayLabel = parseDateLabel(dateInput?.value);
+    if (!dayLabel) { console.warn('Could not detect date — skipping'); return null; }
+
+    const rows = [...document.querySelectorAll('tbody[aria-live="polite"] tr[role="row"]')];
+    const shifts = rows.map(row => {
+      const nameEl = row.querySelector('.preferedname');
+      const lastEl = row.querySelector('.lastname');
+      const nameCell = row.querySelector('th.name');
+      const timeDiv = row.querySelector('td div');
+      const jobEl = row.querySelector('.NoWrap');
+      if (!timeDiv || !jobEl) return null;
+      const rawTime = timeDiv.innerText.trim();
+      const job = jobEl.innerText.replace(/\\s+/g,' ').trim();
+      let name;
+      if (nameEl) {
+        name = ((nameEl?.innerText||'') + ' ' + (lastEl?.innerText||'')).trim();
+      } else {
+        name = (nameCell?.innerText||'').trim() || 'House Shift';
+      }
+      return { name, time: rawTime, job, day: dayLabel };
+    }).filter(Boolean);
+
+    const key = 'hs_week_data';
+    const existing = JSON.parse(sessionStorage.getItem(key) || '[]');
+    const merged = [...existing.filter(s => s.day !== dayLabel), ...shifts];
+    sessionStorage.setItem(key, JSON.stringify(merged));
+    console.log(\`%c✓ \${dayLabel}: \${shifts.length} shifts stored\`, 'color:#10b981;font-weight:bold');
+    return dayLabel;
+  }
+
+  function setDateAndWait(dateObj) {
+    return new Promise(resolve => {
+      const input = getDateInput();
+      if (!input) { resolve(); return; }
+
+      const tbody = document.querySelector('tbody[aria-live="polite"]');
+      const oldHTML = tbody ? tbody.innerHTML : '';
+      const dateStr = (dateObj.getMonth()+1) + '/' + dateObj.getDate() + '/' + dateObj.getFullYear();
+
+      let resolved = false;
+      const done = () => { if (!resolved) { resolved = true; resolve(); } };
+      const timeout = setTimeout(done, 5000);
+
+      if (tbody) {
+        const observer = new MutationObserver(() => {
+          if (tbody.innerHTML !== oldHTML) {
+            observer.disconnect();
+            clearTimeout(timeout);
+            setTimeout(done, 600);
+          }
+        });
+        observer.observe(tbody, { childList: true, subtree: true, characterData: true });
+      } else {
+        setTimeout(done, 4000);
+      }
+
+      // Set date and fire the events HotSchedules listens to
+      $(input).datepicker('setDate', new Date(dateStr));
+      $(input).trigger('change');
+      $(input).trigger('blur');
+    });
+  }
+
+  async function runFullWeek() {
+    const dateInput = getDateInput();
+    if (!dateInput?.value) {
+      console.error('Could not find date picker. Make sure you are on the Daily Report page.');
+      return;
+    }
+
+    const currentDate = new Date(dateInput.value);
+    if (isNaN(currentDate)) {
+      console.error('Could not parse date: ' + dateInput.value);
+      return;
+    }
+
+    // Find Monday of the current week
+    const dayOfWeek = currentDate.getDay();
+    const monday = new Date(currentDate);
+    monday.setDate(currentDate.getDate() - (dayOfWeek === 0 ? 6 : dayOfWeek - 1));
+
+    console.log('%cFull week scrape starting — Mon ' + (monday.getMonth()+1) + '/' + monday.getDate() + '. Keep this tab active.', 'color:#3b82f6;font-weight:bold');
+    sessionStorage.removeItem('hs_week_data');
+
+    for (let offset = 0; offset < 6; offset++) { // Mon–Sat
+      const target = new Date(monday);
+      target.setDate(monday.getDate() + offset);
+      await setDateAndWait(target);
+      scrapeCurrentDay();
+    }
+
+    // Done — dump and copy
+    const data = sessionStorage.getItem('hs_week_data');
+    if (!data) { console.error('No data stored — something went wrong.'); return; }
+    const parsed = JSON.parse(data);
+    const days = [...new Set(parsed.map(s=>s.day))];
+    console.log(\`%c✓ Done! \${parsed.length} shifts across: \${days.join(', ')}\`, 'color:#10b981;font-weight:bold;font-size:14px');
+    navigator.clipboard.writeText(data).then(()=>{
+      console.log('%c✓ Copied to clipboard! Switch to the Job Code Check tool and paste.', 'color:#10b981;font-weight:bold');
+    }).catch(()=>{
+      console.log('Clipboard blocked — copy the data below manually:');
+      console.log(data);
+    });
+  }
+
+  runFullWeek();
+})();`,
+
+  'scrapeScript-src': `(function(){
+  function parseDateLabel(str) {
+    if (!str) return null;
+    const d = new Date(str);
+    if (isNaN(d)) return null;
+    const days = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+    return days[d.getDay()] + ' ' + (d.getMonth()+1) + '/' + d.getDate();
+  }
+  const dateInput = document.querySelector('input.datepicker, input[name="datepicker"], div[data-group="datepicker"] input');
+  const dayLabel = parseDateLabel(dateInput?.value) || prompt('What date is this? (e.g. Mon 5/4)');
+  if (!dayLabel) { console.warn('No date — cancelled.'); return; }
+  console.log('%cDate: ' + dayLabel, 'color:#3b82f6;font-weight:bold');
+
+  const rows = [...document.querySelectorAll('tbody[aria-live="polite"] tr[role="row"]')];
+  const shifts = rows.map(row => {
+    const nameEl = row.querySelector('.preferedname');
+    const lastEl = row.querySelector('.lastname');
+    const nameCell = row.querySelector('th.name');
+    const timeDiv = row.querySelector('td div');
+    const jobEl = row.querySelector('.NoWrap');
+    if (!timeDiv || !jobEl) return null;
+    const rawTime = timeDiv.innerText.trim();
+    const job = jobEl.innerText.replace(/\\s+/g,' ').trim();
+    let name;
+    if (nameEl) {
+      name = ((nameEl?.innerText||'') + ' ' + (lastEl?.innerText||'')).trim();
+    } else {
+      name = (nameCell?.innerText||'').trim() || 'House Shift';
+    }
+    return { name, time: rawTime, job, day: dayLabel };
+  }).filter(Boolean);
+
+  const key = 'hs_week_data';
+  const existing = JSON.parse(sessionStorage.getItem(key) || '[]');
+  const merged = [...existing.filter(s => s.day !== dayLabel), ...shifts];
+  sessionStorage.setItem(key, JSON.stringify(merged));
+  console.log(\`%c✓ Stored \${shifts.length} shifts for \${dayLabel}. Total: \${merged.length}\`, 'color:#10b981;font-weight:bold');
+  console.log('Days captured:', [...new Set(merged.map(s=>s.day))].join(', '));
+})();`,
+
+  'dumpScript-src': `(function(){
+  const data = sessionStorage.getItem('hs_week_data');
+  if (!data) { console.error('No data found. Run the scrape script first.'); return; }
+  const parsed = JSON.parse(data);
+  const days = [...new Set(parsed.map(s=>s.day))];
+  console.log(\`%cFound \${parsed.length} shifts across: \${days.join(', ')}\`, 'color:#3b82f6;font-weight:bold');
+  navigator.clipboard.writeText(data).then(()=>{
+    console.log('%c✓ Copied to clipboard!', 'color:#10b981;font-weight:bold');
+  }).catch(()=>{
+    console.log('Clipboard blocked. Copy manually:');
+    console.log(data);
+  });
+})();`,
+
+  'clearDayScript-src': `(function(){
+  const day = prompt('Which day to clear? (e.g. Mon 5/4)');
+  if (!day) return;
+  const key = 'hs_week_data';
+  const existing = JSON.parse(sessionStorage.getItem(key) || '[]');
+  const filtered = existing.filter(s => s.day !== day);
+  sessionStorage.setItem(key, JSON.stringify(filtered));
+  const days = [...new Set(filtered.map(s=>s.day))];
+  console.log(\`%c✓ Cleared \${day}. Remaining: \${days.join(', ') || 'none'}\`, 'color:#f59e0b;font-weight:bold');
+})();`,
+
+  'clearAllScript-src': `sessionStorage.removeItem('hs_week_data'); console.log('%c✓ All data cleared.', 'color:#f59e0b;font-weight:bold');`
+};
+
+function copyCode(id, btn) {
+  const text = SCRIPTS[id] || '';
+  navigator.clipboard.writeText(text).then(() => {
+    btn.textContent = 'Copied!';
+    btn.classList.add('copied');
+    setTimeout(() => { btn.textContent = 'Copy'; btn.classList.remove('copied'); }, 2000);
+  });
+}
+
+// ─── Time parsing ────────────────────────────────────────────────────────────
+function parseTime(str) {
+  if (!str) return null;
+  str = str.trim().toLowerCase();
+  const match = str.match(/^(\d+)(?::(\d+))?\s*(a|p)/);
+  if (!match) return null;
+  let h = parseInt(match[1]);
+  const m = parseInt(match[2] || '0');
+  const ampm = match[3];
+  if (ampm === 'p' && h !== 12) h += 12;
+  if (ampm === 'a' && h === 12) h = 0;
+  return h * 60 + m;
+}
+
+function parseShiftTime(timeStr) {
+  // "4:00a - 12:00p" → {start, end}
+  timeStr = timeStr.trim();
+  const parts = timeStr.split(/\s*[-–]\s*/);
+  if (parts.length < 2) return null;
+  const start = parseTime(parts[0]);
+  const end = parseTime(parts[1]);
+  if (start === null || end === null) return null;
+  // handle overnight
+  return { start, end: end < start ? end + 1440 : end };
+}
+
+function fmtMins(m) {
+  m = ((m % 1440) + 1440) % 1440;
+  const h = Math.floor(m / 60) % 12 || 12;
+  const min = String(m % 60).padStart(2, '0');
+  const ampm = Math.floor(m / 60) < 12 ? 'a' : 'p';
+  return `${h}:${min}${ampm}`;
+}
+
+// ─── Placement storage — three profiles ──────────────────────────────────────
+const PROFILES = { mon_wed: 'cfa_placement_mon_wed', thu_fri: 'cfa_placement_thu_fri', sat: 'cfa_placement_sat' };
+let currentProfile = 'mon_wed';
+
+function saveProfile(profileKey, slots) {
+  localStorage.setItem(PROFILES[profileKey], JSON.stringify({ data: slots, saved: new Date().toLocaleString() }));
+  updateProfileStatus(profileKey);
+}
+
+function loadProfile(profileKey) {
+  const raw = localStorage.getItem(PROFILES[profileKey]);
+  return raw ? JSON.parse(raw) : null;
+}
+
+function updateProfileStatus(profileKey) {
+  const p = loadProfile(profileKey);
+  const el = document.getElementById('status-' + profileKey);
+  if (el) el.textContent = p ? `${p.data.length} slots · ${p.saved}` : 'not loaded';
+  if (el) el.style.color = p ? 'var(--accent2)' : 'var(--muted)';
+}
+
+function updateAllProfileStatuses() {
+  Object.keys(PROFILES).forEach(updateProfileStatus);
+}
+
+// Map day label → profile key
+function profileForDay(dayLabel) {
+  const d = dayLabel.toLowerCase();
+  if (d.startsWith('sun')) return null;
+  if (d.startsWith('sat')) return 'sat';
+  if (d.startsWith('thu') || d.startsWith('thu_fri')) return 'thu_fri';
+  return 'mon_wed'; // mon/tue/wed
+}
+
+// ─── Profile sub-tab switching ────────────────────────────────────────────────
+function switchProfile(key) {
+  // Save current before switching
+  savePlacementFromTable();
+  currentProfile = key;
+  document.querySelectorAll('.profile-tab').forEach(t => {
+    const active = t.id === 'ptab-' + key;
+    t.style.color = active ? 'var(--text)' : 'var(--muted)';
+    t.style.borderBottomColor = active ? 'var(--accent)' : 'transparent';
+  });
+  const p = loadProfile(key);
+  renderPlacementTable(p ? p.data : []);
+}
+
+// ─── CSV parsing ──────────────────────────────────────────────────────────────
+function parseCSV(text) {
+  const lines = text.trim().split('\n').filter(l => l.trim() && !l.startsWith('#'));
+  const slots = [];
+  for (const line of lines) {
+    const [name, start, end, type, ...splitParts] = line.split(',').map(s => s.trim());
+    if (!name || !type || name.toLowerCase() === 'name') continue; // skip header
+    const splitStr = splitParts.join(',').trim();
+    const windows = [];
+    // Always parse Start/End as the primary window if present
+    if (start && end) {
+      const parsed = parseShiftTime(`${start} - ${end}`);
+      if (parsed) windows.push(parsed);
+    }
+    // Append any additional split windows
+    if (splitStr) {
+      for (const w of splitStr.split(/;\s*/)) {
+        const parsed = parseShiftTime(w.trim());
+        if (parsed) windows.push(parsed);
+      }
+    }
+    if (windows.length === 0) continue;
+    const typeMap = { 'LEAD-FOH':'LEAD_FOH','LEAD_FOH':'LEAD_FOH','LEAD-BOH':'LEAD_BOH','LEAD_BOH':'LEAD_BOH','LEAD':'LEAD_FOH','FINANCIAL':'FINANCIAL' };
+    const rawType = typeMap[type.toUpperCase()] || type.toUpperCase();
+    const normalizedType = inferTypeFromName(name, rawType);
+    slots.push({ name, windows, type: normalizedType });
+  }
+  return slots;
+}
+
+// Infer placement type from slot name
+function inferTypeFromName(name, explicitType) {
+  const n = (name || '').toLowerCase();
+  // Name-based leadership detection always wins
+  if ((n.includes('foh') || n.includes('front')) && n.includes('leader')) return 'LEAD_FOH';
+  if ((n.includes('boh') || n.includes('back')) && n.includes('leader')) return 'LEAD_BOH';
+  // Generic "leader" with no FOH/BOH qualifier in name — fall back to explicit type or LEAD_FOH
+  if (n.includes('leader')) return explicitType && explicitType.startsWith('LEAD') ? explicitType : 'LEAD_FOH';
+  // No leadership keyword — trust explicit type if given, otherwise guess from name
+  if (explicitType && explicitType !== 'FOH') return explicitType;
+  if (n.includes('boh') || n.includes('back')) return 'BOH';
+  return explicitType || 'FOH';
+}
+
+// ─── Placement editor ─────────────────────────────────────────────────────────
+function renderPlacementTable(slots) {
+  const tbody = document.getElementById('placementBody');
+  tbody.innerHTML = '';
+  for (const s of slots) {
+    const windowsStr = s.windows.map(w => fmtMins(w.start) + '-' + fmtMins(w.end)).join('; ');
+    addRowToTable(s.name, s.type, windowsStr);
+  }
+}
+
+function addRowToTable(name='', type='FOH', windowsStr='') {
+  const tbody = document.getElementById('placementBody');
+  const tr = document.createElement('tr');
+  const resolvedType = inferTypeFromName(name, type);
+  const typeDisplayMap = { 'FOH':'FOH','BOH':'BOH','LEAD_FOH':'Lead-FOH','LEAD-FOH':'Lead-FOH','LEAD_BOH':'Lead-BOH','LEAD-BOH':'Lead-BOH','FINANCIAL':'Financial','OTHER':'Other' };
+  const typeDisplay = typeDisplayMap[resolvedType.toUpperCase()] || resolvedType;
+  tr.innerHTML = `
+    <td><input value="${name}" placeholder="Slot name"></td>
+    <td>
+      <select class="type-select">
+        ${['FOH','BOH','Lead-FOH','Lead-BOH','Financial','Other'].map(t => `<option ${t===typeDisplay?'selected':''}>${t}</option>`).join('')}
+      </select>
+    </td>
+    <td><input value="${windowsStr}" placeholder="6a-2p  or  11a-2p; 5p-10:30p"></td>
+    <td><button class="del-btn" onclick="this.closest('tr').remove(); savePlacementFromTable()">×</button></td>
+  `;
+  tbody.appendChild(tr);
+  const nameInput = tr.querySelectorAll('input')[0];
+  const typeSelect = tr.querySelector('select');
+  nameInput.addEventListener('input', () => {
+    const inferred = inferTypeFromName(nameInput.value, 'FOH');
+    typeSelect.value = typeDisplayMap[inferred] || inferred;
+  });
+  tr.querySelectorAll('input, select').forEach(el => el.addEventListener('change', savePlacementFromTable));
+}
+
+function addPlacementRow() { addRowToTable(); }
+
+function savePlacementFromTable() {
+  saveProfile(currentProfile, getPlacementFromTable());
+}
+
+function getPlacementFromTable() {
+  const rows = document.querySelectorAll('#placementBody tr');
+  const slots = [];
+  for (const row of rows) {
+    const inputs = row.querySelectorAll('input');
+    const name = inputs[0].value.trim();
+    const windowsStr = inputs[1].value.trim();
+    const type = row.querySelector('select').value;
+    if (!name || !windowsStr) continue;
+    const windows = [];
+    for (const w of windowsStr.split(/[;]\s*/)) {
+      const parsed = parseShiftTime(w.trim());
+      if (parsed) windows.push(parsed);
+    }
+    if (windows.length > 0) {
+      const typeMap = { 'LEAD-FOH':'LEAD_FOH','LEAD_FOH':'LEAD_FOH','LEAD-BOH':'LEAD_BOH','LEAD_BOH':'LEAD_BOH','LEAD':'LEAD_FOH','FINANCIAL':'FINANCIAL' };
+      const normalizedType = typeMap[type.toUpperCase()] || type.toUpperCase();
+      slots.push({ name, windows, type: normalizedType });
+    }
+  }
+  return slots;
+}
+
+function exportPlacementCSV() {
+  const slots = getPlacementFromTable();
+  const profileName = { mon_wed:'mon-wed', thu_fri:'thu-fri', sat:'saturday' }[currentProfile];
+  const lines = ['Name,Start,End,Type,Split'];
+  for (const s of slots) {
+    const w0 = s.windows[0];
+    const start = w0 ? fmtMins(w0.start) : '';
+    const end = w0 ? fmtMins(w0.end) : '';
+    const split = s.windows.length > 1 ? s.windows.slice(1).map(w => fmtMins(w.start)+'-'+fmtMins(w.end)).join('; ') : '';
+    lines.push([s.name, start, end, s.type.replace('_','-'), split].join(','));
+  }
+  const blob = new Blob([lines.join('\n')], {type:'text/csv'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `placement-${profileName}.csv`;
+  a.click();
+}
+
+function importPlacementCSV(input) {
+  const file = input.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = e => {
+    const slots = parseCSV(e.target.result);
+    saveProfile(currentProfile, slots);
+    renderPlacementTable(slots);
+  };
+  reader.readAsText(file);
+}
+
+function quickImportCSV(input, profileKey) {
+  const file = input.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = e => {
+    const slots = parseCSV(e.target.result);
+    saveProfile(profileKey, slots);
+    // If this is the current profile tab, refresh the table
+    if (profileKey === currentProfile) renderPlacementTable(slots);
+    updateProfileStatus(profileKey);
+  };
+  reader.readAsText(file);
+}
+
+
+
+// ─── Google Sheets sync ───────────────────────────────────────────────────────
+const SHEETS_TAB_MAP = {
+  'Mon-Wed':  'mon_wed',
+  'Thur-Fri': 'thu_fri',
+  'Saturday': 'sat',
+};
+
+function extractSheetId(url) {
+  const m = url.match(/\/spreadsheets\/d\/([a-zA-Z0-9_-]+)/);
+  return m ? m[1] : null;
+}
+
+function sheetsCsvUrl(sheetId, tabName) {
+  return `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(tabName)}`;
+}
+
+// Parse the raw Sheets format: col A = name, col B = time(s), no header row
+// Skip rows with empty B. Infer type from name.
+function parseSheetsCSV(text) {
+  const lines = text.trim().split('\n');
+  const slots = [];
+  const typeMap = { 'LEAD-FOH':'LEAD_FOH','LEAD_FOH':'LEAD_FOH','LEAD-BOH':'LEAD_BOH','LEAD_BOH':'LEAD_BOH','LEAD':'LEAD_FOH','FINANCIAL':'FINANCIAL' };
+
+  for (const line of lines) {
+    // CSV parse — handle quoted fields
+    const cols = [];
+    let cur = '', inQ = false;
+    for (let i = 0; i < line.length; i++) {
+      const c = line[i];
+      if (c === '"') { inQ = !inQ; }
+      else if (c === ',' && !inQ) { cols.push(cur.trim()); cur = ''; }
+      else { cur += c; }
+    }
+    cols.push(cur.trim());
+
+    const name = cols[0]?.replace(/^"|"$/g,'').trim();
+    const timeStr = cols[1]?.replace(/^"|"$/g,'').trim();
+
+    // Skip empty name, empty time, or section headers (DT:, Front Line:, BoH:, etc.)
+    if (!name || !timeStr) continue;
+    if (name.endsWith(':')) continue;
+
+    // Handle "4a or 5a-12a" → use first option
+    const cleanTime = timeStr.replace(/(\d+[ap](?:m)?)\s+or\s+\d+[ap](?:m)?(-)/i, '$1$2');
+
+    // Split on comma for multiple windows e.g. "11a-2p, 5p-10:30p"
+    const windows = [];
+    for (const w of cleanTime.split(',')) {
+      const wt = w.trim();
+      // Normalize shorthand: "6a-10:30p" → parseable
+      const normalized = wt.replace(/([0-9])a/g,'$1:00a').replace(/([0-9])p/g,'$1:00p')
+        .replace(/:00:/, ':').replace(/am/gi,'a').replace(/pm/gi,'p');
+      const parsed = parseShiftTime(normalized);
+      if (parsed) windows.push(parsed);
+    }
+    if (windows.length === 0) continue;
+
+    const inferredType = inferTypeFromName(name, 'FOH');
+    // Financial slot name check
+    const finalType = name.toLowerCase().includes('financial') ? 'FINANCIAL' : inferredType;
+
+    slots.push({ name, windows, type: finalType });
+  }
+  return slots;
+}
+
+async function syncFromSheets() {
+  const url = document.getElementById('sheetsUrl').value.trim();
+  const statusEl = document.getElementById('syncStatus');
+  if (!url) { statusEl.textContent = 'Paste a Sheets URL first.'; statusEl.style.color = 'var(--accent)'; return; }
+
+  const sheetId = extractSheetId(url);
+  if (!sheetId) { statusEl.textContent = 'Could not find sheet ID in URL.'; statusEl.style.color = 'var(--accent)'; return; }
+
+  statusEl.textContent = 'Syncing…'; statusEl.style.color = 'var(--accent2)';
+
+  let successCount = 0;
+  const errors = [];
+
+  for (const [tabName, profileKey] of Object.entries(SHEETS_TAB_MAP)) {
+    try {
+      const csvUrl = sheetsCsvUrl(sheetId, tabName);
+      const resp = await fetch(csvUrl);
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      const text = await resp.text();
+      const slots = parseSheetsCSV(text);
+      if (slots.length === 0) throw new Error('No slots parsed');
+      saveProfile(profileKey, slots);
+      if (profileKey === currentProfile) renderPlacementTable(slots);
+      successCount++;
+    } catch(e) {
+      errors.push(`${tabName}: ${e.message}`);
+    }
+  }
+
+  updateAllProfileStatuses();
+
+  if (errors.length === 0) {
+    statusEl.textContent = `✓ All 3 profiles synced from Sheets.`;
+    statusEl.style.color = 'var(--boh)';
+    // Save URL for next time
+    localStorage.setItem('cfa_sheets_url', url);
+  } else if (successCount > 0) {
+    statusEl.textContent = `Synced ${successCount}/3. Errors: ${errors.join('; ')}`;
+    statusEl.style.color = 'var(--accent2)';
+  } else {
+    statusEl.textContent = `Sync failed: ${errors.join('; ')}`;
+    statusEl.style.color = 'var(--accent)';
+  }
+}
+
+
+function parseScheduleJSON(text) {
+  text = text.trim();
+  // Replace curly/smart quotes that may sneak in from copy-paste
+  text = text.replace(/[\u201C\u201D]/g, '"').replace(/[\u2018\u2019]/g, "'");
+  try {
+    return JSON.parse(text);
+  } catch(e) {
+    // Find the offending character for a more useful error
+    const pos = parseInt((e.message.match(/position (\d+)/) || [])[1]);
+    const snippet = !isNaN(pos) ? ` at position ${pos}: "...${text.slice(Math.max(0,pos-10), pos+10)}..."` : '';
+    throw new Error('Invalid JSON' + snippet + '. Check for smart quotes or missing commas.');
+  }
+}
+
+function categorizeJob(job) {
+  if (!job) return 'OTHER';
+  job = job.toLowerCase();
+  if (job.includes('other store') || job.includes('in training') || job.includes('training')) return 'IGNORE';
+  if (job.startsWith('cow')) return 'OTHER';
+  if (job.includes('financial')) return 'FINANCIAL';
+  if (job.includes('administrative') && !job.includes('financial')) return 'IGNORE';
+  const isBoh = job.includes('boh') || job.includes('back of house');
+  const isBohLead = isBoh && (job.includes('shift leader') || job.includes('leader') || job.includes('director'));
+  // Only "FOH - Shift Leader" (or FOH + shift leader) maps to LEAD_FOH
+  // Drive Thru Leader, DT Leader, etc. all fall through to FOH general
+  const isFohLead = job.includes('foh') && job.includes('shift leader');
+  if (isFohLead) return 'LEAD_FOH';
+  if (isBohLead) return 'LEAD_BOH';
+  if (isBoh) return 'BOH';
+  return 'FOH';
+}
+
+// ─── Coverage matching ────────────────────────────────────────────────────────
+
+function makePool(shifts) {
+  const map = new Map();
+  for (const s of shifts) map.set(s, [{ start: s.start, end: s.end }]);
+  return map;
+}
+
+function availableInWindow(intervals, winStart, winEnd) {
+  let total = 0;
+  for (const iv of intervals) {
+    const lo = Math.max(iv.start, winStart), hi = Math.min(iv.end, winEnd);
+    if (hi > lo) total += hi - lo;
+  }
+  return total;
+}
+
+function claimMinutes(map, shift, claimStart, claimEnd) {
+  const intervals = map.get(shift);
+  const newIntervals = [];
+  for (const iv of intervals) {
+    if (iv.end <= claimStart || iv.start >= claimEnd) {
+      newIntervals.push(iv);
+    } else {
+      if (iv.start < claimStart) newIntervals.push({ start: iv.start, end: claimStart });
+      if (iv.end > claimEnd)     newIntervals.push({ start: claimEnd, end: iv.end });
+    }
+  }
+  map.set(shift, newIntervals);
+}
+
+function checkCoverage(winStart, winEnd, pool, gapMins) {
+  const candidates = [];
+  for (const [shift, intervals] of pool) {
+    if (availableInWindow(intervals, winStart, winEnd) > 0) candidates.push(shift);
+  }
+  if (candidates.length === 0) return { covered: false, segments: [], firstGap: winStart };
+
+  candidates.sort((a, b) => {
+    const aStart = pool.get(a).find(iv => iv.end > winStart && iv.start < winEnd)?.start ?? 9999;
+    const bStart = pool.get(b).find(iv => iv.end > winStart && iv.start < winEnd)?.start ?? 9999;
+    return aStart - bStart || b.end - a.end;
+  });
+
+  const segments = [];
+  let cursor = winStart, lastEnd = winStart, firstGap = null, safety = 0;
+
+  while (cursor < winEnd && safety++ < 500) {
+    let best = null, bestEnd = -1;
+    for (const shift of candidates) {
+      for (const iv of pool.get(shift)) {
+        if (iv.start <= cursor + gapMins && iv.end > cursor && iv.end > bestEnd) {
+          best = shift; bestEnd = iv.end;
+        }
+      }
+    }
+    if (!best) {
+      let nextStart = Infinity;
+      for (const shift of candidates) {
+        for (const iv of pool.get(shift)) {
+          if (iv.start > cursor && iv.start < winEnd) nextStart = Math.min(nextStart, iv.start);
+        }
+      }
+      if (nextStart === Infinity) break;
+      if (firstGap === null) firstGap = cursor;
+      cursor = nextStart;
+      continue;
+    }
+    const iv = pool.get(best).find(iv => iv.end > cursor && iv.start <= cursor + gapMins);
+    const claimStart = Math.max(iv.start, cursor);
+    const claimEnd   = Math.min(bestEnd, winEnd);
+    segments.push({ shift: best, claimedStart: Math.max(claimStart, winStart), claimedEnd: Math.min(claimEnd, winEnd) });
+    claimMinutes(pool, best, claimStart, claimEnd);
+    cursor = claimEnd;
+    lastEnd = claimEnd;
+  }
+
+  const covered = firstGap === null && lastEnd >= winEnd - gapMins;
+  return { covered, segments, firstGap: covered ? null : (firstGap ?? lastEnd) };
+}
+
+// ─── Extra range helpers ──────────────────────────────────────────────────────
+// For each segment, compute what remains of that shift outside the claimed slice
+// that hasn't already been claimed by a prior slot (check pool for remaining intervals).
+function computeExtraRanges(winStart, winEnd, segments, pool) {
+  const ranges = [];
+  for (const seg of segments) {
+    const s = seg.shift;
+    const remaining = pool.get(s) || [];
+    for (const iv of remaining) {
+      if (iv.end <= winStart || iv.start >= winEnd) {
+        ranges.push({ start: iv.start, end: iv.end, name: s.raw.name, cat: s.cat });
+      }
+    }
+  }
+  return ranges;
+}
+
+// Compute the uncovered time ranges within a slot window given its chain
+function computeUncoveredRanges(winStart, winEnd, chain, gapMins) {
+  const gaps = [];
+  let cursor = winStart;
+  // Gap before first segment
+  if (chain.length === 0) return [{ start: winStart, end: winEnd }];
+  if (chain[0].claimedStart > winStart + gapMins) {
+    gaps.push({ start: winStart, end: chain[0].claimedStart });
+  }
+  for (let i = 0; i < chain.length; i++) {
+    cursor = chain[i].claimedEnd;
+    if (i < chain.length - 1 && chain[i+1].claimedStart > cursor + gapMins) {
+      gaps.push({ start: cursor, end: chain[i+1].claimedStart });
+    }
+  }
+  // Trailing gap
+  if (cursor < winEnd - gapMins) gaps.push({ start: cursor, end: winEnd });
+  return gaps;
+}
+
+// Merge overlapping/adjacent {start,end} ranges into a minimal set
+function mergeRanges(ranges) {
+  if (ranges.length === 0) return [];
+  const sorted = [...ranges].sort((a, b) => a.start - b.start);
+  const merged = [{ ...sorted[0] }];
+  for (let i = 1; i < sorted.length; i++) {
+    const last = merged[merged.length - 1];
+    if (sorted[i].start <= last.end) {
+      last.end = Math.max(last.end, sorted[i].end);
+    } else {
+      merged.push({ ...sorted[i] });
+    }
+  }
+  return merged;
+}
+
+// ─── Main check ───────────────────────────────────────────────────────────────
+function runCheck() {
+  const resultsEl = document.getElementById('results');
+  resultsEl.innerHTML = '';
+
+  const schedText = document.getElementById('scheduleInput').value.trim();
+  if (!schedText) {
+    resultsEl.innerHTML = '<div class="error-msg">Paste schedule data first (from the console dump script).</div>';
+    return;
+  }
+
+  let placement = null; // per-day profiles used inside the loop
+
+  const gapMins = parseInt(document.getElementById('gapTolerance').value) || 15;
+
+  let allShifts;
+  try {
+    allShifts = parseScheduleJSON(schedText);
+  } catch(e) {
+    resultsEl.innerHTML = `<div class="error-msg">${e.message}</div>`;
+    return;
+  }
+
+  // Parse shift times — drop ignored categories
+  const parsed = allShifts.map(s => {
+    const times = parseShiftTime(s.time);
+    if (!times) return null;
+    const cat = categorizeJob(s.job);
+    if (cat === 'IGNORE') return null;
+    // Filter midnight-start Administrative shifts (office hours tracking, not real scheduled shifts)
+    if ((s.job||'').toLowerCase().includes('administrative') && times.start === 0) return null;
+    return { ...s, ...times, cat, raw: s };
+  }).filter(Boolean);
+
+  // Group by day
+  const days = [...new Set(parsed.map(s => s.day))];
+
+  let totalOk = 0, totalPartial = 0, totalMissing = 0;
+  const dayHtml = {};    // day → array of html strings
+  const dayResults = {}; // day → slotResults array (for tab dot indicators)
+
+  for (const day of days) {
+    dayHtml[day] = [];
+    dayResults[day] = [];
+    const h = dayHtml[day]; // shorthand
+
+    // Look up the right placement profile for this day
+    const profileKey = profileForDay(day);
+    if (!profileKey) {
+      h.push(`<div class="day-section"><div class="day-header" style="color:var(--muted)">${day} <span class="day-stats">skipped (no profile)</span></div></div>`);
+      continue;
+    }
+    const profileData = loadProfile(profileKey);
+    const placement = profileData?.data || [];
+    if (placement.length === 0) {
+      h.push(`<div class="day-section"><div class="day-header">${day} <span class="day-stats" style="color:var(--accent)">no placement loaded for this day type</span></div></div>`);
+      continue;
+    }
+
+    const dayShifts = parsed.filter(s => s.day === day);
+
+    // Build minute-budget pools per category — shared across all slots for this day
+    const pools = {
+      FOH:       makePool(dayShifts.filter(s => s.cat === 'FOH')),
+      BOH:       makePool(dayShifts.filter(s => s.cat === 'BOH')),
+      LEAD_FOH:  makePool(dayShifts.filter(s => s.cat === 'LEAD_FOH')),
+      LEAD_BOH:  makePool(dayShifts.filter(s => s.cat === 'LEAD_BOH')),
+      FINANCIAL: makePool(dayShifts.filter(s => s.cat === 'FINANCIAL')),
+      OTHER:     makePool(dayShifts.filter(s => s.cat === 'OTHER')),
+    };
+
+    const slotResults = [];
+
+    const slotWindows = [];
+    for (const slot of placement) {
+      for (const window of slot.windows) {
+        slotWindows.push({ slot, window });
+      }
+    }
+    slotWindows.sort((a, b) => a.window.start - b.window.start || a.window.end - b.window.end);
+
+    for (const { slot, window } of slotWindows) {
+      const pool = pools[slot.type] || pools.OTHER;
+      const { covered, segments, firstGap } = checkCoverage(window.start, window.end, pool, gapMins);
+      let status;
+      if (segments.length === 0) {
+        status = 'missing';
+        totalMissing++;
+      } else if (covered) {
+        status = 'ok';
+        totalOk++;
+      } else {
+        status = 'partial';
+        totalPartial++;
+      }
+      // Store segments and touched shifts — extraRanges computed after all slots done
+      const touchedShifts = segments.map(seg => seg.shift);
+      slotResults.push({ slot, window, chain: segments, status, firstGap, touchedShifts, extraRanges: [] });
+    }
+
+    // Unmatched: shifts never touched by any slot
+    // FOH/BOH/Lead/Financial with no slot overlap → Extra (schedulable buffer)
+    // Truly unrecognized → Unmatched
+    const unmatched = [];
+    const knownCats = new Set(['FOH','BOH','LEAD_FOH','LEAD_BOH','FINANCIAL']);
+    for (const [cat, pool] of Object.entries(pools)) {
+      for (const [shift, intervals] of pool) {
+        const originalMinutes = shift.end - shift.start;
+        const remainingMinutes = intervals.reduce((sum, iv) => sum + iv.end - iv.start, 0);
+        if (remainingMinutes === originalMinutes) {
+          // Never touched at all
+          if (knownCats.has(shift.cat)) {
+            // Treat as extra coverage — add remaining intervals to allExtra after built
+            shift._fullyUnclaimed = true;
+          } else {
+            unmatched.push(shift);
+          }
+        }
+      }
+    }
+
+    // Build day-level extra: for each shift that was used by ANY slot,
+    // show what minutes remain in the pool after ALL slots are done.
+    // This avoids showing claimed minutes as "extra" and avoids duplicates.
+    const allExtra = [];
+    const seenShifts = new Set();
+    for (const r of slotResults) {
+      for (const shift of r.touchedShifts) {
+        if (seenShifts.has(shift)) continue;
+        seenShifts.add(shift);
+        const pool = pools[shift.cat] || pools.OTHER;
+        const remaining = pool?.get(shift) || [];
+        for (const iv of remaining) {
+          allExtra.push({ start: iv.start, end: iv.end, name: shift.raw.name, cat: shift.cat });
+        }
+      }
+    }
+    allExtra.sort((a, b) => a.start - b.start);
+
+    // Also add fully unclaimed FOH/BOH/Lead shifts to Extra
+    for (const [cat, pool] of Object.entries(pools)) {
+      for (const [shift, intervals] of pool) {
+        if (shift._fullyUnclaimed) {
+          for (const iv of intervals) {
+            allExtra.push({ start: iv.start, end: iv.end, name: shift.raw.name, cat: shift.cat });
+          }
+          delete shift._fullyUnclaimed;
+        }
+      }
+    }
+    allExtra.sort((a, b) => a.start - b.start);
+
+    // Store results for tab dot indicators
+    dayResults[day] = slotResults;
+
+    // Render day
+    const fohSlots      = slotResults.filter(r => r.slot.type === 'FOH');
+    const bohSlots      = slotResults.filter(r => r.slot.type === 'BOH');
+    const leadFohSlots  = slotResults.filter(r => r.slot.type === 'LEAD_FOH');
+    const leadBohSlots  = slotResults.filter(r => r.slot.type === 'LEAD_BOH');
+    const financialSlots = slotResults.filter(r => r.slot.type === 'FINANCIAL');
+    const otherSlots    = slotResults.filter(r => r.slot.type === 'OTHER');
+
+    const dayOk = slotResults.filter(r => r.status === 'ok').length;
+    const dayMissing = slotResults.filter(r => r.status === 'missing').length;
+
+    h.push(`<div class="day-section">`);
+    h.push(`<div class="day-header">${day} <span class="day-stats">${dayOk}/${slotResults.length} covered · ${dayMissing} missing</span></div>`);
+
+    for (const [label, group, cls] of [
+      ['FOH', fohSlots, 'foh'],
+      ['FOH Leadership', leadFohSlots, 'lead'],
+      ['BOH', bohSlots, 'boh'],
+      ['BOH Leadership', leadBohSlots, 'lead'],
+      ['Financial', financialSlots, 'other'],
+      ['Other', otherSlots, '']
+    ]) {
+      if (group.length === 0) continue;
+      h.push(`<div class="section-header tag-${cls}">${label}</div>`);
+      for (const r of group) {
+        h.push(renderSlotRow(r, gapMins));
+      }
+    }
+
+    // Extra + Missing summary row
+    const hasSummary = allExtra.length > 0 || unmatched.length > 0 ||
+      slotResults.some(r => r.status === 'missing' || r.status === 'partial');
+
+    if (hasSummary) {
+      h.push(`<div class="unmatched-section" style="display:flex;gap:28px;flex-wrap:wrap;">`);
+
+      if (allExtra.length > 0) {
+        h.push(`<div style="flex:1;min-width:200px;"><h4>Extra coverage</h4><div style="margin-top:6px;display:flex;flex-wrap:wrap;gap:4px;">`);
+        for (const r of allExtra) {
+          const catLabel = { 'FOH':'FOH','BOH':'BOH','LEAD_FOH':'Lead-FOH','LEAD_BOH':'Lead-BOH','FINANCIAL':'Fin' }[r.cat] || '';
+          const isHouse = (r.name||'').toLowerCase().includes('house');
+          const nameStyle = isHouse ? 'opacity:0.45;font-style:italic;' : 'opacity:0.6;';
+          h.push(`<span class="unmatched-shift" style="color:var(--accent2);border-color:rgba(245,158,11,0.3);">${fmtMins(r.start)}–${fmtMins(r.end)} <span style="opacity:0.5;font-size:10px;">${catLabel}</span> <span style="font-size:10px;${nameStyle}">${r.name||''}</span></span>`);
+        }
+        h.push(`</div></div>`);
+      }
+
+      const missingSlots = slotResults.filter(r => r.status === 'missing' || r.status === 'partial');
+      if (missingSlots.length > 0) {
+        h.push(`<div style="flex:1;min-width:200px;"><h4>Missing / incomplete</h4><div style="margin-top:6px;display:flex;flex-wrap:wrap;gap:4px;">`);
+        for (const r of missingSlots) {
+          const gaps = computeUncoveredRanges(r.window.start, r.window.end, r.chain, gapMins);
+          const gapStr = gaps.map(g => `${fmtMins(g.start)}–${fmtMins(g.end)}`).join(', ');
+          h.push(`<span class="unmatched-shift" style="color:#fca5a5;border-color:rgba(232,65,42,0.3);"><span style="opacity:0.7">${r.slot.name}:</span> ${gapStr}</span>`);
+        }
+        h.push(`</div></div>`);
+      }
+
+      if (unmatched.length > 0) {
+        h.push(`<div style="flex:1;min-width:200px;"><h4>Unmatched shifts</h4><div style="margin-top:6px;display:flex;flex-wrap:wrap;gap:4px;">`);
+        for (const s of unmatched) {
+          const catCls = (s.cat || 'other').toLowerCase().replace('_','-');
+          h.push(`<span class="unmatched-shift"><span class="chain-seg ${catCls}" style="margin-right:4px;">${s.raw.time}</span>${s.raw.job||'?'}<span style="opacity:0.6;font-size:10px;margin-left:5px;">${s.raw.name}</span></span>`);
+        }
+        h.push(`</div></div>`);
+      }
+
+      h.push(`</div>`);
+    }
+
+    h.push(`</div>`);
+  }
+
+  const summaryHtml = `
+    <div class="summary-bar">
+      <div class="summary-stat"><span class="val s-ok">${totalOk}</span><span class="lbl">Fully Covered</span></div>
+      <div class="summary-stat"><span class="val s-partial">${totalPartial}</span><span class="lbl">Partial</span></div>
+      <div class="summary-stat"><span class="val s-missing">${totalMissing}</span><span class="lbl">Missing</span></div>
+    </div>
+  `;
+
+  // Build day tab nav
+  const firstDay = days[0];
+  const dayTabNav = `<div class="day-tabs" id="dayTabNav" style="display:flex;flex-wrap:wrap;gap:0;border-bottom:1px solid var(--border);margin-bottom:24px;">
+    ${days.map((day, i) => {
+      const dayOk = dayResults[day].filter(r => r.status === 'ok').length;
+      const dayMissing = dayResults[day].filter(r => r.status === 'missing').length;
+      const dayPartial = dayResults[day].filter(r => r.status === 'partial').length;
+      const dot = dayMissing > 0 ? `<span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--accent);margin-left:5px;vertical-align:middle;"></span>`
+        : dayPartial > 0 ? `<span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--accent2);margin-left:5px;vertical-align:middle;"></span>`
+        : `<span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--boh);margin-left:5px;vertical-align:middle;"></span>`;
+      return `<div class="day-tab ${i===0?'active':''}" onclick="switchDayTab('${day}')" id="dtab-${day.replace(/[^a-z0-9]/gi,'_')}" style="padding:10px 16px;font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:0.08em;text-transform:uppercase;cursor:pointer;color:${i===0?'var(--text)':'var(--muted)'};border-bottom:2px solid ${i===0?'var(--accent)':'transparent'};margin-bottom:-1px;transition:color 0.15s,border-color 0.15s;white-space:nowrap;">${day}${dot}</div>`;
+    }).join('')}
+  </div>`;
+
+  // Build day panel divs
+  const dayPanelsHtml = days.map((day, i) =>
+    `<div class="day-panel" id="dpanel-${day.replace(/[^a-z0-9]/gi,'_')}" style="display:${i===0?'block':'none'};">${dayHtml[day].join('')}</div>`
+  ).join('');
+
+  resultsEl.innerHTML = summaryHtml + dayTabNav + dayPanelsHtml;
+}
+
+function switchDayTab(day) {
+  document.querySelectorAll('.day-tab').forEach(t => {
+    t.style.color = 'var(--muted)';
+    t.style.borderBottomColor = 'transparent';
+  });
+  document.querySelectorAll('.day-panel').forEach(p => p.style.display = 'none');
+  const safeDay = day.replace(/[^a-z0-9]/gi,'_');
+  const tab = document.getElementById('dtab-' + safeDay);
+  const panel = document.getElementById('dpanel-' + safeDay);
+  if (tab) { tab.style.color = 'var(--text)'; tab.style.borderBottomColor = 'var(--accent)'; }
+  if (panel) panel.style.display = 'block';
+}
+
+function renderSlotRow(r, gapMins) {
+  const { slot, window, chain, status, firstGap, extraRanges } = r;
+  const targetStr = fmtMins(window.start) + '–' + fmtMins(window.end);
+  const badgeMap = { ok: 'badge-ok', partial: 'badge-partial', missing: 'badge-missing' };
+  const labelMap = { ok: '✓ OK', partial: '~ Partial', missing: '✗ Missing' };
+
+  let chainHtml = '';
+  if (chain.length === 0) {
+    chainHtml = '<span style="color:var(--muted);font-size:11px;">No matching shifts found</span>';
+    if (status === 'missing' || status === 'partial') {
+      const gapStart = firstGap ?? window.start;
+      chainHtml += ` <span class="gap-note">uncovered ${fmtMins(gapStart)}–${fmtMins(window.end)}</span>`;
+    }
+  } else {
+    const segs = [];
+    let cursor = window.start;
+
+    // Show gap at window open if first shift starts late
+    if (chain.length > 0 && chain[0].claimedStart > window.start + gapMins) {
+      segs.push(`<span class="gap-note">uncovered ${fmtMins(window.start)}–${fmtMins(chain[0].claimedStart)}</span>`);
+      segs.push('<span class="chain-arrow">→</span>');
+    }
+
+    for (let i = 0; i < chain.length; i++) {
+      const seg = chain[i];
+      const dispStart = seg.claimedStart;
+      const dispEnd   = seg.claimedEnd;
+      if (i > 0 && dispStart > cursor + 1) {
+        segs.push(`<span class="gap-note">uncovered ${fmtMins(cursor)}–${fmtMins(dispStart)}</span>`);
+        segs.push('<span class="chain-arrow">→</span>');
+      }
+      const cls = (seg.shift?.cat || 'other').toLowerCase().replace('_','-');
+      const isHouse = (seg.shift?.raw?.name||'').toLowerCase().includes('house');
+      const nameStyle = isHouse ? 'opacity:0.45;font-style:italic;' : 'opacity:0.6;';
+      segs.push(`<span class="chain-seg ${cls}">${fmtMins(dispStart)}–${fmtMins(dispEnd)} <span style="font-size:9px;${nameStyle}">${seg.shift.raw.name}</span></span>`);
+      if (i < chain.length - 1) segs.push('<span class="chain-arrow">→</span>');
+      cursor = dispEnd;
+    }
+
+    // Show trailing gap if window end not reached
+    if (cursor < window.end - gapMins) {
+      segs.push(`<span class="chain-arrow">→</span>`);
+      segs.push(`<span class="gap-note">uncovered ${fmtMins(cursor)}–${fmtMins(window.end)}</span>`);
+    }
+
+    chainHtml = segs.join('');
+  }
+
+  return `
+    <div class="slot-row ${status}">
+      <div>
+        <div class="slot-name">${slot.name}</div>
+        <div class="slot-target">${targetStr}</div>
+      </div>
+      <div class="chain-display">${chainHtml}</div>
+      <div class="status-badge ${badgeMap[status]}">${labelMap[status]}</div>
+    </div>
+  `;
+}
+
+function printHelp() {
+  const content = document.getElementById('help-content').innerHTML;
+  const win = window.open('', '_blank');
+  win.document.write(`
+    <!DOCTYPE html><html><head><title>Job Code Check — How To Use</title>
+    <style>
+      body { font-family: -apple-system, sans-serif; font-size: 14px; line-height: 1.75; color: #111; max-width: 680px; margin: 40px auto; padding: 0 20px; }
+      h2 { font-size: 18px; margin-bottom: 8px; }
+      h3 { font-size: 14px; margin: 0 0 6px; }
+      p { margin: 0 0 10px; color: #333; }
+      .step { display: flex; gap: 16px; margin-bottom: 24px; }
+      .step-num { font-weight: 700; color: #e8412a; width: 20px; flex-shrink: 0; padding-top: 2px; }
+      .step-content { flex: 1; }
+      .status-badge { display: inline-block; font-size: 11px; padding: 2px 8px; border-radius: 3px; margin-right: 8px; }
+      .badge-ok { background: #d1fae5; color: #065f46; }
+      .badge-partial { background: #fef3c7; color: #92400e; }
+      .badge-missing { background: #fee2e2; color: #991b1b; }
+      strong { color: #111; }
+    </style></head><body>${content}</body></html>
+  `);
+  win.document.close();
+  win.print();
+}
+
+function clearAll() {
+  document.getElementById('scheduleInput').value = '';
+  document.getElementById('results').innerHTML = '';
+}
+
+// ─── Drag and drop ────────────────────────────────────────────────────────────
+const dropZone = document.getElementById('fileDrop');
+if (dropZone) {
+  dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('dragover'); });
+  dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
+  dropZone.addEventListener('drop', e => {
+    e.preventDefault();
+    dropZone.classList.remove('dragover');
+    const file = e.dataTransfer.files[0];
+    if (file) {
+      const fakeInput = { files: [file] };
+      handleCSV(fakeInput);
+    }
+  });
+}
+
+// ─── Init ────────────────────────────────────────────────────────────────────
+(function init() {
+  const p = loadProfile('mon_wed');
+  renderPlacementTable(p ? p.data : []);
+  switchProfile('mon_wed');
+  updateAllProfileStatuses();
+  Object.entries(SCRIPTS).forEach(([id, code]) => {
+    const el = document.getElementById(id);
+    if (el) el.textContent = code;
+  });
+  // Restore saved Sheets URL
+  const savedUrl = localStorage.getItem('cfa_sheets_url');
+  if (savedUrl) {
+    const el = document.getElementById('sheetsUrl');
+    if (el) el.value = savedUrl;
+  }
+})();
+</script>
+</body>
+</html>
