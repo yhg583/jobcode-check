@@ -631,11 +631,16 @@
 
 <!-- PLACEMENT EDITOR -->
 <div class="panel" id="panel-placement">
-  <p style="color:var(--muted);font-size:12px;margin-bottom:16px;">
+  <p style="color:var(--muted);font-size:12px;margin-bottom:12px;">
     Three placement profiles — each day is checked against its own profile.
-    CSV format: <code style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--accent2)">Name,Start,End,Type,Split</code>
-    — Type: FOH / BOH / Lead-FOH / Lead-BOH / Other.
   </p>
+
+  <!-- Sheets sync row -->
+  <div style="display:flex;gap:6px;align-items:center;margin-bottom:8px;">
+    <input id="sheetsUrlPlacement" type="text" placeholder="Paste Google Sheets URL to sync all profiles at once…" style="flex:1;font-size:11px;padding:6px 10px;">
+    <button class="btn" onclick="syncFromSheetsPlacement()" style="white-space:nowrap;font-size:11px;padding:6px 14px;">Sync from Sheets</button>
+  </div>
+  <div id="syncStatusPlacement" style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--muted);min-height:14px;margin-bottom:16px;"></div>
 
   <!-- Profile sub-tabs -->
   <div style="display:flex;gap:0;margin-bottom:20px;border-bottom:1px solid var(--border);">
@@ -1276,10 +1281,13 @@ function sheetsCsvUrl(sheetId, tabName) {
 function parseSheetsCSV(text) {
   const lines = text.trim().split('\n');
   const slots = [];
-  const typeMap = { 'LEAD-FOH':'LEAD_FOH','LEAD_FOH':'LEAD_FOH','LEAD-BOH':'LEAD_BOH','LEAD_BOH':'LEAD_BOH','LEAD':'LEAD_FOH','FINANCIAL':'FINANCIAL' };
+
+  // Section headers tell us whether following rows are FOH or BOH
+  // DT: → FOH, Front Line: → FOH, BoH: → BOH, Leader → special
+  let currentSection = 'FOH'; // default
 
   for (const line of lines) {
-    // CSV parse — handle quoted fields
+    // Simple CSV parse handling quoted fields
     const cols = [];
     let cur = '', inQ = false;
     for (let i = 0; i < line.length; i++) {
@@ -1293,37 +1301,69 @@ function parseSheetsCSV(text) {
     const name = cols[0]?.replace(/^"|"$/g,'').trim();
     const timeStr = cols[1]?.replace(/^"|"$/g,'').trim();
 
-    // Skip empty name, empty time, or section headers (DT:, Front Line:, BoH:, etc.)
-    if (!name || !timeStr) continue;
-    if (name.endsWith(':')) continue;
+    if (!name) continue;
+
+    const nameLower = name.toLowerCase();
+
+    // Detect section headers — update current section and skip row
+    if (nameLower === 'dt:' || nameLower === 'dt' || nameLower === 'front line:' || nameLower === 'front line') {
+      currentSection = 'FOH'; continue;
+    }
+    if (nameLower === 'boh:' || nameLower === 'boh' || nameLower === 'back of house:') {
+      currentSection = 'BOH'; continue;
+    }
+    if (nameLower === 'leader' && !timeStr) { continue; } // standalone Leader header with no time
+
+    // Skip rows with no time
+    if (!timeStr) continue;
 
     // Handle "4a or 5a-12a" → use first option
-    const cleanTime = timeStr.replace(/(\d+[ap](?:m)?)\s+or\s+\d+[ap](?:m)?(-)/i, '$1$2');
+    const cleanTime = timeStr.replace(/(\d+(?::\d+)?[ap])\s+or\s+\d+(?::\d+)?[ap]-/i, '$1-');
 
-    // Split on comma for multiple windows e.g. "11a-2p, 5p-10:30p"
+    // Split on comma for multiple windows
     const windows = [];
     for (const w of cleanTime.split(',')) {
-      const wt = w.trim();
-      // Normalize shorthand: "6a-10:30p" → parseable
-      const normalized = wt.replace(/([0-9])a/g,'$1:00a').replace(/([0-9])p/g,'$1:00p')
-        .replace(/:00:/, ':').replace(/am/gi,'a').replace(/pm/gi,'p');
-      const parsed = parseShiftTime(normalized);
+      const parsed = parseShiftTime(w.trim());
       if (parsed) windows.push(parsed);
     }
     if (windows.length === 0) continue;
 
-    const inferredType = inferTypeFromName(name, 'FOH');
-    // Financial slot name check
-    const finalType = name.toLowerCase().includes('financial') ? 'FINANCIAL' : inferredType;
+    // Determine type — name-based leadership detection always wins,
+    // otherwise use the current section
+    let type = currentSection;
+    if ((nameLower.includes('foh') || nameLower.includes('front') || nameLower.includes('dining room')) && nameLower.includes('leader')) {
+      type = 'LEAD_FOH';
+    } else if ((nameLower.includes('boh') || nameLower.includes('back')) && nameLower.includes('leader')) {
+      type = 'LEAD_BOH';
+    } else if (nameLower === 'leader' || (nameLower.includes('leader') && currentSection === 'BOH')) {
+      type = 'LEAD_BOH';
+    } else if (nameLower.includes('financial')) {
+      type = 'FINANCIAL';
+    }
 
-    slots.push({ name, windows, type: finalType });
+    slots.push({ name, windows, type });
   }
   return slots;
 }
 
 async function syncFromSheets() {
   const url = document.getElementById('sheetsUrl').value.trim();
-  const statusEl = document.getElementById('syncStatus');
+  // Mirror URL to placement tab field
+  const placementField = document.getElementById('sheetsUrlPlacement');
+  if (placementField && url) placementField.value = url;
+  await _doSheetsSync(url, 'syncStatus');
+}
+
+async function syncFromSheetsPlacement() {
+  const url = document.getElementById('sheetsUrlPlacement').value.trim();
+  // Mirror URL to run check tab field
+  const checkField = document.getElementById('sheetsUrl');
+  if (checkField && url) checkField.value = url;
+  await _doSheetsSync(url, 'syncStatusPlacement');
+}
+
+async function _doSheetsSync(url, statusElId) {
+  const statusEl = document.getElementById(statusElId);
   if (!url) { statusEl.textContent = 'Paste a Sheets URL first.'; statusEl.style.color = 'var(--accent)'; return; }
 
   const sheetId = extractSheetId(url);
@@ -1351,19 +1391,18 @@ async function syncFromSheets() {
   }
 
   updateAllProfileStatuses();
+  localStorage.setItem('cfa_sheets_url', url);
 
-  if (errors.length === 0) {
-    statusEl.textContent = `✓ All 3 profiles synced from Sheets.`;
-    statusEl.style.color = 'var(--boh)';
-    // Save URL for next time
-    localStorage.setItem('cfa_sheets_url', url);
-  } else if (successCount > 0) {
-    statusEl.textContent = `Synced ${successCount}/3. Errors: ${errors.join('; ')}`;
-    statusEl.style.color = 'var(--accent2)';
-  } else {
-    statusEl.textContent = `Sync failed: ${errors.join('; ')}`;
-    statusEl.style.color = 'var(--accent)';
-  }
+  // Update both status elements
+  const msg = errors.length === 0
+    ? `✓ All 3 profiles synced.`
+    : successCount > 0 ? `Synced ${successCount}/3. Errors: ${errors.join('; ')}` : `Sync failed: ${errors.join('; ')}`;
+  const color = errors.length === 0 ? 'var(--boh)' : successCount > 0 ? 'var(--accent2)' : 'var(--accent)';
+
+  ['syncStatus','syncStatusPlacement'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) { el.textContent = msg; el.style.color = color; }
+  });
 }
 
 
@@ -1919,11 +1958,12 @@ if (dropZone) {
     const el = document.getElementById(id);
     if (el) el.textContent = code;
   });
-  // Restore saved Sheets URL
   const savedUrl = localStorage.getItem('cfa_sheets_url');
   if (savedUrl) {
-    const el = document.getElementById('sheetsUrl');
-    if (el) el.value = savedUrl;
+    ['sheetsUrl','sheetsUrlPlacement'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.value = savedUrl;
+    });
   }
 })();
 </script>
