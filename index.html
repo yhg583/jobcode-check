@@ -1100,7 +1100,7 @@ function profileForDay(dayLabel) {
   const d = dayLabel.toLowerCase();
   if (d.startsWith('sun')) return null;
   if (d.startsWith('sat')) return 'sat';
-  if (d.startsWith('thu') || d.startsWith('thu_fri')) return 'thu_fri';
+  if (d.startsWith('thu') || d.startsWith('fri')) return 'thu_fri';
   return 'mon_wed'; // mon/tue/wed
 }
 
