@@ -1521,6 +1521,10 @@ function checkCoverage(winStart, winEnd, pool, gapMins) {
     }
     const claimStart = Math.max(bestIv.start, cursor);
     const claimEnd   = Math.min(bestEnd, winEnd);
+    // Debug: log if segment start jumps forward from cursor unexpectedly
+    if (Math.max(claimStart, winStart) > cursor + 1 && cursor > winStart) {
+      console.warn('[gap-jump] cursor='+cursor+' segStart='+Math.max(claimStart,winStart)+' shift='+best.raw.name+' ivStart='+bestIv.start+' ivEnd='+bestIv.end);
+    }
     segments.push({ shift: best, claimedStart: Math.max(claimStart, winStart), claimedEnd: Math.min(claimEnd, winEnd) });
     claimMinutes(pool, best, claimStart, claimEnd);
     cursor = claimEnd;
