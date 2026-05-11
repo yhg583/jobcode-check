@@ -1499,11 +1499,11 @@ function checkCoverage(winStart, winEnd, pool, gapMins) {
   let cursor = winStart, lastEnd = winStart, firstGap = null, safety = 0;
 
   while (cursor < winEnd && safety++ < 500) {
-    let best = null, bestEnd = -1;
+    let best = null, bestEnd = -1, bestIv = null;
     for (const shift of candidates) {
       for (const iv of pool.get(shift)) {
         if (iv.start <= cursor + gapMins && iv.end > cursor && iv.end > bestEnd) {
-          best = shift; bestEnd = iv.end;
+          best = shift; bestEnd = iv.end; bestIv = iv;
         }
       }
     }
@@ -1519,8 +1519,7 @@ function checkCoverage(winStart, winEnd, pool, gapMins) {
       cursor = nextStart;
       continue;
     }
-    const iv = pool.get(best).find(iv => iv.end > cursor && iv.start <= cursor + gapMins);
-    const claimStart = Math.max(iv.start, cursor);
+    const claimStart = Math.max(bestIv.start, cursor);
     const claimEnd   = Math.min(bestEnd, winEnd);
     segments.push({ shift: best, claimedStart: Math.max(claimStart, winStart), claimedEnd: Math.min(claimEnd, winEnd) });
     claimMinutes(pool, best, claimStart, claimEnd);
