@@ -1436,7 +1436,7 @@ function parseScheduleJSON(text) {
 function categorizeJob(job) {
   if (!job) return 'OTHER';
   job = job.toLowerCase();
-  if (job.includes('other store') || job.includes('in training') || job.includes('training')) return 'IGNORE';
+  if (job.includes('other store') || job.includes('mall') || job.includes('in training') || job.includes('training')) return 'IGNORE';
   if (job.startsWith('cow')) return 'OTHER';
   if (job.includes('financial')) return 'FINANCIAL';
   if (job.includes('administrative') && !job.includes('financial')) return 'IGNORE';
