@@ -1749,25 +1749,44 @@ function runCheck() {
     }
     allExtra.sort((a, b) => a.start - b.start);
 
-    // Consolidate extra coverage into per-category time bands.
-    // Merge touching/overlapping leftover intervals within each category so the
-    // display shows "BOH 11a–5p" instead of seven adjacent per-person fragments.
+    // Consolidate extra coverage into per-category time bands using a depth-aware
+    // sweep line. Adjacent leftover minutes merge into one band, but the band
+    // splits wherever the overlap depth (how many people are free) changes — so
+    // "12p–2p (2 deep)" and "2p–12a (1 deep)" stay distinct instead of collapsing
+    // into a single "12p–12a" that hides the double coverage.
     const extraBandsByCat = {};
     for (const r of allExtra) {
       (extraBandsByCat[r.cat] = extraBandsByCat[r.cat] || []).push(r);
     }
-    const extraBands = []; // { cat, start, end }
+    const extraBands = []; // { cat, start, end, depth }
     const catOrder = ['FOH', 'LEAD_FOH', 'BOH', 'LEAD_BOH', 'FINANCIAL', 'OTHER'];
     for (const cat of catOrder) {
-      const ivs = (extraBandsByCat[cat] || []).slice().sort((a, b) => a.start - b.start);
+      const ivs = extraBandsByCat[cat] || [];
       if (ivs.length === 0) continue;
-      const merged = [{ start: ivs[0].start, end: ivs[0].end }];
-      for (let i = 1; i < ivs.length; i++) {
-        const last = merged[merged.length - 1];
-        if (ivs[i].start <= last.end) last.end = Math.max(last.end, ivs[i].end);
-        else merged.push({ start: ivs[i].start, end: ivs[i].end });
+      // Sweep line: +1 at each interval start, -1 at each end
+      const points = [];
+      for (const iv of ivs) { points.push([iv.start, 1]); points.push([iv.end, -1]); }
+      // Sort by time; at equal times process ends (-1) AFTER starts (+1) so a
+      // shift ending exactly where another begins keeps continuous depth correct
+      points.sort((a, b) => a[0] - b[0] || b[1] - a[1]);
+      let depth = 0, segStart = null;
+      const raw = [];
+      for (const [t, d] of points) {
+        if (segStart !== null && t > segStart && depth > 0) {
+          raw.push({ start: segStart, end: t, depth });
+        }
+        depth += d;
+        segStart = t;
       }
-      for (const b of merged) extraBands.push({ cat, start: b.start, end: b.end });
+      // Coalesce consecutive segments that share the same depth
+      for (const seg of raw) {
+        const last = extraBands[extraBands.length - 1];
+        if (last && last.cat === cat && last.depth === seg.depth && last.end === seg.start) {
+          last.end = seg.end;
+        } else {
+          extraBands.push({ cat, start: seg.start, end: seg.end, depth: seg.depth });
+        }
+      }
     }
 
     // Store results for tab dot indicators
@@ -1813,7 +1832,8 @@ function runCheck() {
         h.push(`<div style="flex:1;min-width:200px;"><h4>Extra coverage</h4><div style="margin-top:6px;display:flex;flex-wrap:wrap;gap:4px;">`);
         for (const b of extraBands) {
           const catLabel = { 'FOH':'FOH','BOH':'BOH','LEAD_FOH':'Lead-FOH','LEAD_BOH':'Lead-BOH','FINANCIAL':'Fin','OTHER':'Other' }[b.cat] || '';
-          h.push(`<span class="unmatched-shift" style="color:var(--accent2);border-color:rgba(245,158,11,0.3);"><span style="opacity:0.5;font-size:10px;margin-right:4px;">${catLabel}</span>${fmtMins(b.start)}–${fmtMins(b.end)}</span>`);
+          const depthLabel = b.depth > 1 ? `<span style="opacity:0.55;font-size:10px;margin-left:5px;">${b.depth} deep</span>` : '';
+          h.push(`<span class="unmatched-shift" style="color:var(--accent2);border-color:rgba(245,158,11,0.3);"><span style="opacity:0.5;font-size:10px;margin-right:4px;">${catLabel}</span>${fmtMins(b.start)}–${fmtMins(b.end)}${depthLabel}</span>`);
         }
         h.push(`</div></div>`);
       }
