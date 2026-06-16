@@ -1718,58 +1718,56 @@ function runCheck() {
       }
     }
 
-    // Build day-level extra: collect remaining intervals per shift object (one entry
-    // per shift, carrying the object ref so we can group fragments correctly).
-    const allExtra = []; // { shift (obj ref), start, end, name, cat }
+    // Build day-level extra: collect remaining intervals from all touched shifts
+    const allExtra = [];
     const seenShifts = new Set();
     for (const r of slotResults) {
       for (const shift of r.touchedShifts) {
         if (seenShifts.has(shift)) continue;
         seenShifts.add(shift);
         const pool = pools[shift.cat] || pools.OTHER;
-        const remaining = pool?.get(shift) || [];
-        for (const iv of remaining) {
-          allExtra.push({ shift, start: iv.start, end: iv.end, name: shift.raw.name, cat: shift.cat });
+        for (const iv of (pool?.get(shift) || [])) {
+          allExtra.push({ start: iv.start, end: iv.end, cat: shift.cat });
         }
       }
     }
-    // Also add fully unclaimed FOH/BOH/Lead shifts to Extra
+    // Also add fully unclaimed FOH/BOH/Lead shifts
     for (const [cat, pool] of Object.entries(pools)) {
       for (const [shift, intervals] of pool) {
         if (shift._fullyUnclaimed) {
-          for (const iv of intervals) {
-            allExtra.push({ shift, start: iv.start, end: iv.end, name: shift.raw.name, cat: shift.cat });
-          }
+          for (const iv of intervals) allExtra.push({ start: iv.start, end: iv.end, cat: shift.cat });
           delete shift._fullyUnclaimed;
         }
       }
     }
 
-    // Consolidate extra coverage: merge each individual shift's own leftover
-    // fragments into one chip per shift, then sort by start time within category.
-    // This means two different people free 12p-2p show as two separate chips,
-    // but one person whose intervals were split by allocations shows as one chip.
-    const extraChipsByCat = new Map(); // shift → { cat, name, start, end }
-    for (const r of allExtra) {
-      if (!extraChipsByCat.has(r.shift)) {
-        extraChipsByCat.set(r.shift, { cat: r.cat, name: r.name, ivs: [] });
-      }
-      extraChipsByCat.get(r.shift).ivs.push({ start: r.start, end: r.end });
-    }
+    // Consolidate per category using a depth-aware sweep line.
+    // Adjacent intervals merge; overlapping intervals split into separate bands
+    // so "12p-2p (2 people free) + 12p-12a (1 person free)" yields two chips:
+    // 12p-2p and 2p-12a — not one swallowed 12p-12a.
     const catOrder = ['FOH', 'LEAD_FOH', 'BOH', 'LEAD_BOH', 'FINANCIAL', 'OTHER'];
-    const extraChips = []; // { cat, name, start, end } — one chip per person per contiguous block
-    for (const [, sh] of extraChipsByCat) {
-      sh.ivs.sort((a, b) => a.start - b.start);
-      const merged = [{ ...sh.ivs[0] }];
-      for (let i = 1; i < sh.ivs.length; i++) {
-        const last = merged[merged.length - 1];
-        if (sh.ivs[i].start <= last.end) last.end = Math.max(last.end, sh.ivs[i].end);
-        else merged.push({ ...sh.ivs[i] });
+    const extraChips = [];
+    const byCat = {};
+    for (const r of allExtra) (byCat[r.cat] = byCat[r.cat] || []).push(r);
+    for (const cat of catOrder) {
+      const ivs = byCat[cat] || [];
+      if (!ivs.length) continue;
+      const points = [];
+      for (const iv of ivs) { points.push([iv.start, 1]); points.push([iv.end, -1]); }
+      points.sort((a, b) => a[0] - b[0] || b[1] - a[1]);
+      let depth = 0, segStart = null;
+      const segs = [];
+      for (const [t, d] of points) {
+        if (segStart !== null && t > segStart && depth > 0) segs.push({ start: segStart, end: t, depth });
+        depth += d; segStart = t;
       }
-      for (const iv of merged) extraChips.push({ cat: sh.cat, name: sh.name, start: iv.start, end: iv.end });
+      // Coalesce consecutive same-depth segments
+      for (const seg of segs) {
+        const last = extraChips[extraChips.length - 1];
+        if (last && last.cat === cat && last.depth === seg.depth && last.end === seg.start) last.end = seg.end;
+        else extraChips.push({ cat, start: seg.start, end: seg.end, depth: seg.depth });
+      }
     }
-    // Sort by category order then by start time
-    extraChips.sort((a, b) => catOrder.indexOf(a.cat) - catOrder.indexOf(b.cat) || a.start - b.start);
 
     // Store results for tab dot indicators
     dayResults[day] = slotResults;
