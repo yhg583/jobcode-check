@@ -1521,6 +1521,10 @@ function checkCoverage(winStart, winEnd, pool, gapMins) {
     }
     const claimStart = Math.max(bestIv.start, cursor);
     const claimEnd   = Math.min(bestEnd, winEnd);
+    // Debug: log if segment start jumps forward from cursor unexpectedly
+    if (Math.max(claimStart, winStart) > cursor + 1 && cursor > winStart) {
+      console.warn('[gap-jump] cursor='+cursor+' segStart='+Math.max(claimStart,winStart)+' shift='+best.raw.name+' ivStart='+bestIv.start+' ivEnd='+bestIv.end);
+    }
     segments.push({ shift: best, claimedStart: Math.max(claimStart, winStart), claimedEnd: Math.min(claimEnd, winEnd) });
     claimMinutes(pool, best, claimStart, claimEnd);
     cursor = claimEnd;
@@ -1531,7 +1535,23 @@ function checkCoverage(winStart, winEnd, pool, gapMins) {
   return { covered, segments, firstGap: covered ? null : (firstGap ?? lastEnd) };
 }
 
-// ─── Uncovered range helper ───────────────────────────────────────────────────
+// ─── Extra range helpers ──────────────────────────────────────────────────────
+// For each segment, compute what remains of that shift outside the claimed slice
+// that hasn't already been claimed by a prior slot (check pool for remaining intervals).
+function computeExtraRanges(winStart, winEnd, segments, pool) {
+  const ranges = [];
+  for (const seg of segments) {
+    const s = seg.shift;
+    const remaining = pool.get(s) || [];
+    for (const iv of remaining) {
+      if (iv.end <= winStart || iv.start >= winEnd) {
+        ranges.push({ start: iv.start, end: iv.end, name: s.raw.name, cat: s.cat });
+      }
+    }
+  }
+  return ranges;
+}
+
 // Compute the uncovered time ranges within a slot window given its chain
 function computeUncoveredRanges(winStart, winEnd, chain, gapMins) {
   const gaps = [];
@@ -1692,9 +1712,9 @@ function runCheck() {
         status = 'partial';
         totalPartial++;
       }
-      // Store segments and touched shifts for later day-level extra calc
+      // Store segments and touched shifts — extraRanges computed after all slots done
       const touchedShifts = segments.map(seg => seg.shift);
-      slotResults.push({ slot, window, chain: segments, status, firstGap, touchedShifts });
+      slotResults.push({ slot, window, chain: segments, status, firstGap, touchedShifts, extraRanges: [] });
     }
 
     // Unmatched: shifts never touched by any slot
@@ -1718,7 +1738,9 @@ function runCheck() {
       }
     }
 
-    // Build day-level extra: collect all remaining shift intervals by category
+    // Build day-level extra: for each shift that was used by ANY slot,
+    // show what minutes remain in the pool after ALL slots are done.
+    // This avoids showing claimed minutes as "extra" and avoids duplicates.
     const allExtra = [];
     const seenShifts = new Set();
     for (const r of slotResults) {
@@ -1726,41 +1748,26 @@ function runCheck() {
         if (seenShifts.has(shift)) continue;
         seenShifts.add(shift);
         const pool = pools[shift.cat] || pools.OTHER;
-        for (const iv of (pool?.get(shift) || [])) allExtra.push({ start: iv.start, end: iv.end, cat: shift.cat });
+        const remaining = pool?.get(shift) || [];
+        for (const iv of remaining) {
+          allExtra.push({ start: iv.start, end: iv.end, name: shift.raw.name, cat: shift.cat });
+        }
       }
     }
+    allExtra.sort((a, b) => a.start - b.start);
+
+    // Also add fully unclaimed FOH/BOH/Lead shifts to Extra
     for (const [cat, pool] of Object.entries(pools)) {
       for (const [shift, intervals] of pool) {
         if (shift._fullyUnclaimed) {
-          for (const iv of intervals) allExtra.push({ start: iv.start, end: iv.end, cat: shift.cat });
+          for (const iv of intervals) {
+            allExtra.push({ start: iv.start, end: iv.end, name: shift.raw.name, cat: shift.cat });
+          }
           delete shift._fullyUnclaimed;
         }
       }
     }
-
-    // Depth-aware sweep line per category: adjacent intervals merge into one band;
-    // overlapping intervals split at depth changes. Each band gets a ×N label when
-    // depth > 1 so "12p–2p ×2" and "2p–12a" replace a swallowed "12p–12a".
-    const catOrder = ['FOH', 'LEAD_FOH', 'BOH', 'LEAD_BOH', 'FINANCIAL', 'OTHER'];
-    const extraChips = []; // { cat, start, end, depth }
-    const byCat = {};
-    for (const r of allExtra) (byCat[r.cat] = byCat[r.cat] || []).push(r);
-    for (const cat of catOrder) {
-      const ivs = byCat[cat] || []; if (!ivs.length) continue;
-      const points = [];
-      for (const iv of ivs) { points.push([iv.start, 1]); points.push([iv.end, -1]); }
-      points.sort((a, b) => a[0] - b[0] || b[1] - a[1]);
-      let depth = 0, segStart = null; const segs = [];
-      for (const [t, d] of points) {
-        if (segStart !== null && t > segStart && depth > 0) segs.push({ start: segStart, end: t, depth });
-        depth += d; segStart = t;
-      }
-      for (const seg of segs) {
-        const last = extraChips[extraChips.length - 1];
-        if (last && last.cat === cat && last.depth === seg.depth && last.end === seg.start) last.end = seg.end;
-        else extraChips.push({ cat, start: seg.start, end: seg.end, depth: seg.depth });
-      }
-    }
+    allExtra.sort((a, b) => a.start - b.start);
 
     // Store results for tab dot indicators
     dayResults[day] = slotResults;
@@ -1795,18 +1802,19 @@ function runCheck() {
     }
 
     // Extra + Missing summary row
-    const hasSummary = extraChips.length > 0 || unmatched.length > 0 ||
+    const hasSummary = allExtra.length > 0 || unmatched.length > 0 ||
       slotResults.some(r => r.status === 'missing' || r.status === 'partial');
 
     if (hasSummary) {
       h.push(`<div class="unmatched-section" style="display:flex;gap:28px;flex-wrap:wrap;">`);
 
-      if (extraChips.length > 0) {
+      if (allExtra.length > 0) {
         h.push(`<div style="flex:1;min-width:200px;"><h4>Extra coverage</h4><div style="margin-top:6px;display:flex;flex-wrap:wrap;gap:4px;">`);
-        for (const c of extraChips) {
-          const catLabel = { 'FOH':'FOH','BOH':'BOH','LEAD_FOH':'Lead-FOH','LEAD_BOH':'Lead-BOH','FINANCIAL':'Fin','OTHER':'Other' }[c.cat] || '';
-          const mult = c.depth > 1 ? `<span style="opacity:0.6;font-size:10px;margin-left:4px;">×${c.depth}</span>` : '';
-          h.push(`<span class="unmatched-shift" style="color:var(--accent2);border-color:rgba(245,158,11,0.3);"><span style="opacity:0.5;font-size:10px;margin-right:4px;">${catLabel}</span>${fmtMins(c.start)}–${fmtMins(c.end)}${mult}</span>`);
+        for (const r of allExtra) {
+          const catLabel = { 'FOH':'FOH','BOH':'BOH','LEAD_FOH':'Lead-FOH','LEAD_BOH':'Lead-BOH','FINANCIAL':'Fin' }[r.cat] || '';
+          const isHouse = (r.name||'').toLowerCase().includes('house');
+          const nameStyle = isHouse ? 'opacity:0.45;font-style:italic;' : 'opacity:0.6;';
+          h.push(`<span class="unmatched-shift" style="color:var(--accent2);border-color:rgba(245,158,11,0.3);">${fmtMins(r.start)}–${fmtMins(r.end)} <span style="opacity:0.5;font-size:10px;">${catLabel}</span> <span style="font-size:10px;${nameStyle}">${r.name||''}</span></span>`);
         }
         h.push(`</div></div>`);
       }
@@ -1881,7 +1889,7 @@ function switchDayTab(day) {
 }
 
 function renderSlotRow(r, gapMins) {
-  const { slot, window, chain, status, firstGap } = r;
+  const { slot, window, chain, status, firstGap, extraRanges } = r;
   const targetStr = fmtMins(window.start) + '–' + fmtMins(window.end);
   const badgeMap = { ok: 'badge-ok', partial: 'badge-partial', missing: 'badge-missing' };
   const labelMap = { ok: '✓ OK', partial: '~ Partial', missing: '✗ Missing' };
