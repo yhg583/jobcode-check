@@ -1718,10 +1718,7 @@ function runCheck() {
       }
     }
 
-    // Build day-level extra using shift object identity as key.
-    // Each shift's own leftover fragments are merged into one chip per contiguous
-    // block (handles allocation splitting). Different shifts stay separate — two
-    // people both free 12p-12a show as two chips, not one.
+    // Build day-level extra: collect all remaining shift intervals by category
     const allExtra = [];
     const seenShifts = new Set();
     for (const r of slotResults) {
@@ -1729,40 +1726,41 @@ function runCheck() {
         if (seenShifts.has(shift)) continue;
         seenShifts.add(shift);
         const pool = pools[shift.cat] || pools.OTHER;
-        for (const iv of (pool?.get(shift) || [])) {
-          allExtra.push({ shift, start: iv.start, end: iv.end, cat: shift.cat });
-        }
+        for (const iv of (pool?.get(shift) || [])) allExtra.push({ start: iv.start, end: iv.end, cat: shift.cat });
       }
     }
-    // Also add fully unclaimed FOH/BOH/Lead shifts
     for (const [cat, pool] of Object.entries(pools)) {
       for (const [shift, intervals] of pool) {
         if (shift._fullyUnclaimed) {
-          for (const iv of intervals) allExtra.push({ shift, start: iv.start, end: iv.end, cat: shift.cat });
+          for (const iv of intervals) allExtra.push({ start: iv.start, end: iv.end, cat: shift.cat });
           delete shift._fullyUnclaimed;
         }
       }
     }
 
-    // Merge each shift's own fragments, then sort by category order + start time
+    // Depth-aware sweep line per category: adjacent intervals merge into one band;
+    // overlapping intervals split at depth changes. Each band gets a ×N label when
+    // depth > 1 so "12p–2p ×2" and "2p–12a" replace a swallowed "12p–12a".
     const catOrder = ['FOH', 'LEAD_FOH', 'BOH', 'LEAD_BOH', 'FINANCIAL', 'OTHER'];
-    const byShift = new Map();
-    for (const r of allExtra) {
-      if (!byShift.has(r.shift)) byShift.set(r.shift, { cat: r.cat, ivs: [] });
-      byShift.get(r.shift).ivs.push({ start: r.start, end: r.end });
-    }
-    const extraChips = [];
-    for (const [, sh] of byShift) {
-      sh.ivs.sort((a, b) => a.start - b.start);
-      const merged = [{ ...sh.ivs[0] }];
-      for (let i = 1; i < sh.ivs.length; i++) {
-        const last = merged[merged.length - 1];
-        if (sh.ivs[i].start <= last.end) last.end = Math.max(last.end, sh.ivs[i].end);
-        else merged.push({ ...sh.ivs[i] });
+    const extraChips = []; // { cat, start, end, depth }
+    const byCat = {};
+    for (const r of allExtra) (byCat[r.cat] = byCat[r.cat] || []).push(r);
+    for (const cat of catOrder) {
+      const ivs = byCat[cat] || []; if (!ivs.length) continue;
+      const points = [];
+      for (const iv of ivs) { points.push([iv.start, 1]); points.push([iv.end, -1]); }
+      points.sort((a, b) => a[0] - b[0] || b[1] - a[1]);
+      let depth = 0, segStart = null; const segs = [];
+      for (const [t, d] of points) {
+        if (segStart !== null && t > segStart && depth > 0) segs.push({ start: segStart, end: t, depth });
+        depth += d; segStart = t;
       }
-      for (const iv of merged) extraChips.push({ cat: sh.cat, start: iv.start, end: iv.end });
+      for (const seg of segs) {
+        const last = extraChips[extraChips.length - 1];
+        if (last && last.cat === cat && last.depth === seg.depth && last.end === seg.start) last.end = seg.end;
+        else extraChips.push({ cat, start: seg.start, end: seg.end, depth: seg.depth });
+      }
     }
-    extraChips.sort((a, b) => catOrder.indexOf(a.cat) - catOrder.indexOf(b.cat) || a.start - b.start);
 
     // Store results for tab dot indicators
     dayResults[day] = slotResults;
@@ -1807,7 +1805,8 @@ function runCheck() {
         h.push(`<div style="flex:1;min-width:200px;"><h4>Extra coverage</h4><div style="margin-top:6px;display:flex;flex-wrap:wrap;gap:4px;">`);
         for (const c of extraChips) {
           const catLabel = { 'FOH':'FOH','BOH':'BOH','LEAD_FOH':'Lead-FOH','LEAD_BOH':'Lead-BOH','FINANCIAL':'Fin','OTHER':'Other' }[c.cat] || '';
-          h.push(`<span class="unmatched-shift" style="color:var(--accent2);border-color:rgba(245,158,11,0.3);"><span style="opacity:0.5;font-size:10px;margin-right:4px;">${catLabel}</span>${fmtMins(c.start)}–${fmtMins(c.end)}</span>`);
+          const mult = c.depth > 1 ? `<span style="opacity:0.6;font-size:10px;margin-left:4px;">×${c.depth}</span>` : '';
+          h.push(`<span class="unmatched-shift" style="color:var(--accent2);border-color:rgba(245,158,11,0.3);"><span style="opacity:0.5;font-size:10px;margin-right:4px;">${catLabel}</span>${fmtMins(c.start)}–${fmtMins(c.end)}${mult}</span>`);
         }
         h.push(`</div></div>`);
       }
