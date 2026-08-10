@@ -1604,6 +1604,47 @@ function mergeRanges(ranges) {
   return merged;
 }
 
+// Split a set of possibly-overlapping {start,end} ranges into the minimal set of
+// maximal, non-fragmented "lanes" that together cover the same total demand —
+// unlike mergeRanges, this preserves multiplicity: if two ranges both need
+// coverage 12a-1a, that's 2 concurrent needs, not 1, so it produces two chips
+// (e.g. one continuous 12a-3a lane plus a second 12a-1a lane for the overlap)
+// instead of silently collapsing them into a single 12a-3a range.
+function splitOverlappingRanges(ranges) {
+  if (ranges.length === 0) return [];
+  const points = [];
+  for (const r of ranges) { points.push([r.start, 1]); points.push([r.end, -1]); }
+  points.sort((a, b) => a[0] - b[0] || b[1] - a[1]);
+
+  // Sweep into elementary segments of constant depth (concurrent demand count)
+  let depth = 0, segStart = null;
+  const segs = [];
+  for (const [t, d] of points) {
+    if (segStart !== null && t > segStart && depth > 0) segs.push({ start: segStart, end: t, depth });
+    depth += d;
+    segStart = t;
+  }
+
+  // Assign segments to parallel lanes: a lane keeps running as long as it's still
+  // needed, opens when depth rises, and closes (finalizing a chip) when depth
+  // falls or there's a real time gap (depth was 0 in between).
+  const openLanes = [];
+  const chips = [];
+  let prevEnd = null;
+  for (const seg of segs) {
+    if (prevEnd !== null && seg.start > prevEnd) {
+      for (const start of openLanes) chips.push({ start, end: prevEnd });
+      openLanes.length = 0;
+    }
+    while (openLanes.length < seg.depth) openLanes.push(seg.start);
+    while (openLanes.length > seg.depth) chips.push({ start: openLanes.pop(), end: seg.start });
+    prevEnd = seg.end;
+  }
+  for (const start of openLanes) chips.push({ start, end: prevEnd });
+
+  return chips.sort((a, b) => a.start - b.start || (b.end - b.start) - (a.end - a.start));
+}
+
 // ─── Main check ───────────────────────────────────────────────────────────────
 function runCheck() {
   const resultsEl = document.getElementById('results');
@@ -1863,7 +1904,7 @@ function runCheck() {
           const ranges = gapsByCat[cat];
           if (!ranges || ranges.length === 0) continue;
           const label = catLabelMap[cat] || cat;
-          for (const g of mergeRanges(ranges)) {
+          for (const g of splitOverlappingRanges(ranges)) {
             h.push(`<span class="unmatched-shift" style="color:#fca5a5;border-color:rgba(232,65,42,0.3);"><span style="opacity:0.7">${label}:</span> ${fmtMins(g.start)}–${fmtMins(g.end)}</span>`);
           }
         }
