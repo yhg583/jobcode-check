@@ -1849,11 +1849,23 @@ function runCheck() {
 
       const missingSlots = slotResults.filter(r => r.status === 'missing' || r.status === 'partial');
       if (missingSlots.length > 0) {
-        h.push(`<div style="flex:1;min-width:200px;"><h4>Missing / incomplete</h4><div style="margin-top:6px;display:flex;flex-wrap:wrap;gap:4px;">`);
+        // Generalize per-slot gaps back to the underlying HS job code (FOH General,
+        // BOH General, etc). Overlapping/adjacent gaps within the same job code merge
+        // into one range; distinct, non-touching gaps stay as separate entries.
+        const catLabelMap = { FOH: 'FOH General', BOH: 'BOH General', LEAD_FOH: 'FOH Leadership', LEAD_BOH: 'BOH Leadership', FINANCIAL: 'Financial', OTHER: 'Other' };
+        const gapsByCat = {};
         for (const r of missingSlots) {
           const gaps = computeUncoveredRanges(r.window.start, r.window.end, r.chain, gapMins);
-          const gapStr = gaps.map(g => `${fmtMins(g.start)}–${fmtMins(g.end)}`).join(', ');
-          h.push(`<span class="unmatched-shift" style="color:#fca5a5;border-color:rgba(232,65,42,0.3);"><span style="opacity:0.7">${r.slot.name}:</span> ${gapStr}</span>`);
+          (gapsByCat[r.slot.type] = gapsByCat[r.slot.type] || []).push(...gaps);
+        }
+        h.push(`<div style="flex:1;min-width:200px;"><h4>Missing / incomplete</h4><div style="margin-top:6px;display:flex;flex-wrap:wrap;gap:4px;">`);
+        for (const cat of catOrder) {
+          const ranges = gapsByCat[cat];
+          if (!ranges || ranges.length === 0) continue;
+          const label = catLabelMap[cat] || cat;
+          for (const g of mergeRanges(ranges)) {
+            h.push(`<span class="unmatched-shift" style="color:#fca5a5;border-color:rgba(232,65,42,0.3);"><span style="opacity:0.7">${label}:</span> ${fmtMins(g.start)}–${fmtMins(g.end)}</span>`);
+          }
         }
         h.push(`</div></div>`);
       }
