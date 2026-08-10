@@ -576,6 +576,42 @@
   .scroll-x { overflow-x: auto; }
 
   small { color: var(--muted); font-size: 11px; }
+
+  /* Mobile / iOS layout */
+  @media (max-width: 680px) {
+    header { padding: 14px 16px; gap: 10px; }
+    header span { font-size: 10px; }
+
+    .tabs {
+      padding: 0 16px;
+      overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
+      scrollbar-width: none;
+    }
+    .tabs::-webkit-scrollbar { display: none; }
+    .tab { padding: 12px 14px; flex-shrink: 0; }
+
+    .panel.active { padding: 16px; }
+
+    .two-col { grid-template-columns: 1fr; gap: 16px; }
+
+    .actions-row { align-items: stretch; }
+    .actions-row .btn, .actions-row .btn-secondary { flex: 1; text-align: center; }
+    .actions-row .divider { display: none; }
+    .gap-control { margin-left: 0; width: 100%; justify-content: space-between; }
+
+    .slot-row {
+      grid-template-columns: 1fr;
+      gap: 8px;
+    }
+    .status-badge { justify-self: start; }
+
+    .placement-table th, .placement-table td { padding: 6px 8px; font-size: 11px; }
+
+    input[type="text"], input[type="number"], textarea, .btn, .btn-secondary {
+      font-size: 16px; /* prevents iOS auto-zoom on focus */
+    }
+  }
 </style>
 </head>
 <body>
