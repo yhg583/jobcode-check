@@ -1658,7 +1658,8 @@ function runCheck() {
 
   let placement = null; // per-day profiles used inside the loop
 
-  const gapMins = parseInt(document.getElementById('gapTolerance').value) || 15;
+  const gapToleranceRaw = parseInt(document.getElementById('gapTolerance').value);
+  const gapMins = Number.isNaN(gapToleranceRaw) ? 15 : gapToleranceRaw;
 
   let allShifts;
   try {
