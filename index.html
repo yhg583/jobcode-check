@@ -1072,6 +1072,17 @@ function copyCode(id, btn) {
   });
 }
 
+// ─── HTML escaping ───────────────────────────────────────────────────────────
+// Slot names, day labels, and employee names/jobs all originate from user-
+// supplied data (CSV imports, Sheets sync, pasted schedule JSON) and get
+// interpolated into innerHTML — escape before embedding so a stray "<" or
+// quote in someone's name/title can't break out of the markup.
+function escapeHtml(str) {
+  return String(str ?? '').replace(/[&<>"']/g, c => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+  }[c]));
+}
+
 // ─── Time parsing ────────────────────────────────────────────────────────────
 function parseTime(str) {
   if (!str) return null;
@@ -1215,13 +1226,13 @@ function addRowToTable(name='', type='FOH', windowsStr='') {
   const typeDisplayMap = { 'FOH':'FOH','BOH':'BOH','LEAD_FOH':'Lead-FOH','LEAD-FOH':'Lead-FOH','LEAD_BOH':'Lead-BOH','LEAD-BOH':'Lead-BOH','FINANCIAL':'Financial','OTHER':'Other' };
   const typeDisplay = typeDisplayMap[resolvedType.toUpperCase()] || resolvedType;
   tr.innerHTML = `
-    <td><input value="${name}" placeholder="Slot name"></td>
+    <td><input value="${escapeHtml(name)}" placeholder="Slot name"></td>
     <td>
       <select class="type-select">
         ${['FOH','BOH','Lead-FOH','Lead-BOH','Financial','Other'].map(t => `<option ${t===typeDisplay?'selected':''}>${t}</option>`).join('')}
       </select>
     </td>
-    <td><input value="${windowsStr}" placeholder="6a-2p  or  11a-2p; 5p-10:30p"></td>
+    <td><input value="${escapeHtml(windowsStr)}" placeholder="6a-2p  or  11a-2p; 5p-10:30p"></td>
     <td><button class="del-btn" onclick="this.closest('tr').remove(); savePlacementFromTable()">×</button></td>
   `;
   tbody.appendChild(tr);
@@ -1675,7 +1686,10 @@ function runCheck() {
     if (!times) return null;
     const cat = categorizeJob(s.job);
     if (cat === 'IGNORE') return null;
-    // Filter midnight-start Administrative shifts (office hours tracking, not real scheduled shifts)
+    // Plain "Administrative" is already dropped above via cat === 'IGNORE'. This only
+    // catches the rarer case of a job code containing BOTH "administrative" and
+    // "financial" (categorizeJob classifies those FINANCIAL, not IGNORE) — if it also
+    // starts at midnight it's office-hours tracking, not a real scheduled shift.
     if ((s.job||'').toLowerCase().includes('administrative') && times.start === 0) return null;
     return { ...s, ...times, cat, raw: s };
   }).filter(Boolean);
@@ -1695,13 +1709,13 @@ function runCheck() {
     // Look up the right placement profile for this day
     const profileKey = profileForDay(day);
     if (!profileKey) {
-      h.push(`<div class="day-section"><div class="day-header" style="color:var(--muted)">${day} <span class="day-stats">skipped (no profile)</span></div></div>`);
+      h.push(`<div class="day-section"><div class="day-header" style="color:var(--muted)">${escapeHtml(day)} <span class="day-stats">skipped (no profile)</span></div></div>`);
       continue;
     }
     const profileData = loadProfile(profileKey);
     const placement = profileData?.data || [];
     if (placement.length === 0) {
-      h.push(`<div class="day-section"><div class="day-header">${day} <span class="day-stats" style="color:var(--accent)">no placement loaded for this day type</span></div></div>`);
+      h.push(`<div class="day-section"><div class="day-header">${escapeHtml(day)} <span class="day-stats" style="color:var(--accent)">no placement loaded for this day type</span></div></div>`);
       continue;
     }
 
@@ -1845,7 +1859,7 @@ function runCheck() {
     const dayMissing = slotResults.filter(r => r.status === 'missing').length;
 
     h.push(`<div class="day-section">`);
-    h.push(`<div class="day-header">${day} <span class="day-stats">${dayOk}/${slotResults.length} covered · ${dayMissing} missing</span></div>`);
+    h.push(`<div class="day-header">${escapeHtml(day)} <span class="day-stats">${dayOk}/${slotResults.length} covered · ${dayMissing} missing</span></div>`);
 
     for (const [label, group, cls] of [
       ['FOH', fohSlots, 'foh'],
@@ -1905,7 +1919,7 @@ function runCheck() {
         h.push(`<div style="flex:1;min-width:200px;"><h4>Unmatched shifts</h4><div style="margin-top:6px;display:flex;flex-wrap:wrap;gap:4px;">`);
         for (const s of unmatched) {
           const catCls = (s.cat || 'other').toLowerCase().replace('_','-');
-          h.push(`<span class="unmatched-shift"><span class="chain-seg ${catCls}" style="margin-right:4px;">${s.raw.time}</span>${s.raw.job||'?'}<span style="opacity:0.6;font-size:10px;margin-left:5px;">${s.raw.name}</span></span>`);
+          h.push(`<span class="unmatched-shift"><span class="chain-seg ${catCls}" style="margin-right:4px;">${escapeHtml(s.raw.time)}</span>${escapeHtml(s.raw.job||'?')}<span style="opacity:0.6;font-size:10px;margin-left:5px;">${escapeHtml(s.raw.name)}</span></span>`);
         }
         h.push(`</div></div>`);
       }
@@ -1934,7 +1948,7 @@ function runCheck() {
       const dot = dayMissing > 0 ? `<span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--accent);margin-left:5px;vertical-align:middle;"></span>`
         : dayPartial > 0 ? `<span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--accent2);margin-left:5px;vertical-align:middle;"></span>`
         : `<span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--boh);margin-left:5px;vertical-align:middle;"></span>`;
-      return `<div class="day-tab ${i===0?'active':''}" onclick="switchDayTab('${day}')" id="dtab-${day.replace(/[^a-z0-9]/gi,'_')}" style="padding:10px 16px;font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:0.08em;text-transform:uppercase;cursor:pointer;color:${i===0?'var(--text)':'var(--muted)'};border-bottom:2px solid ${i===0?'var(--accent)':'transparent'};margin-bottom:-1px;transition:color 0.15s,border-color 0.15s;white-space:nowrap;">${day}${dot}</div>`;
+      return `<div class="day-tab ${i===0?'active':''}" onclick="switchDayTab(${escapeHtml(JSON.stringify(day))})" id="dtab-${day.replace(/[^a-z0-9]/gi,'_')}" style="padding:10px 16px;font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:0.08em;text-transform:uppercase;cursor:pointer;color:${i===0?'var(--text)':'var(--muted)'};border-bottom:2px solid ${i===0?'var(--accent)':'transparent'};margin-bottom:-1px;transition:color 0.15s,border-color 0.15s;white-space:nowrap;">${escapeHtml(day)}${dot}</div>`;
     }).join('')}
   </div>`;
 
@@ -1993,7 +2007,7 @@ function renderSlotRow(r, gapMins) {
       const cls = (seg.shift?.cat || 'other').toLowerCase().replace('_','-');
       const isHouse = (seg.shift?.raw?.name||'').toLowerCase().includes('house');
       const nameStyle = isHouse ? 'opacity:0.45;font-style:italic;' : 'opacity:0.6;';
-      segs.push(`<span class="chain-seg ${cls}">${fmtMins(dispStart)}–${fmtMins(dispEnd)} <span style="font-size:9px;${nameStyle}">${seg.shift.raw.name}</span></span>`);
+      segs.push(`<span class="chain-seg ${cls}">${fmtMins(dispStart)}–${fmtMins(dispEnd)} <span style="font-size:9px;${nameStyle}">${escapeHtml(seg.shift.raw.name)}</span></span>`);
       if (i < chain.length - 1) segs.push('<span class="chain-arrow">→</span>');
       cursor = dispEnd;
     }
@@ -2010,7 +2024,7 @@ function renderSlotRow(r, gapMins) {
   return `
     <div class="slot-row ${status}">
       <div>
-        <div class="slot-name">${slot.name}</div>
+        <div class="slot-name">${escapeHtml(slot.name)}</div>
         <div class="slot-target">${targetStr}</div>
       </div>
       <div class="chain-display">${chainHtml}</div>
