@@ -1604,6 +1604,47 @@ function mergeRanges(ranges) {
   return merged;
 }
 
+// Split a set of possibly-overlapping {start,end} ranges into the minimal set of
+// maximal, non-fragmented "lanes" that together cover the same total demand —
+// unlike mergeRanges, this preserves multiplicity: if two ranges both need
+// coverage 12a-1a, that's 2 concurrent needs, not 1, so it produces two chips
+// (e.g. one continuous 12a-3a lane plus a second 12a-1a lane for the overlap)
+// instead of silently collapsing them into a single 12a-3a range.
+function splitOverlappingRanges(ranges) {
+  if (ranges.length === 0) return [];
+  const points = [];
+  for (const r of ranges) { points.push([r.start, 1]); points.push([r.end, -1]); }
+  points.sort((a, b) => a[0] - b[0] || b[1] - a[1]);
+
+  // Sweep into elementary segments of constant depth (concurrent demand count)
+  let depth = 0, segStart = null;
+  const segs = [];
+  for (const [t, d] of points) {
+    if (segStart !== null && t > segStart && depth > 0) segs.push({ start: segStart, end: t, depth });
+    depth += d;
+    segStart = t;
+  }
+
+  // Assign segments to parallel lanes: a lane keeps running as long as it's still
+  // needed, opens when depth rises, and closes (finalizing a chip) when depth
+  // falls or there's a real time gap (depth was 0 in between).
+  const openLanes = [];
+  const chips = [];
+  let prevEnd = null;
+  for (const seg of segs) {
+    if (prevEnd !== null && seg.start > prevEnd) {
+      for (const start of openLanes) chips.push({ start, end: prevEnd });
+      openLanes.length = 0;
+    }
+    while (openLanes.length < seg.depth) openLanes.push(seg.start);
+    while (openLanes.length > seg.depth) chips.push({ start: openLanes.pop(), end: seg.start });
+    prevEnd = seg.end;
+  }
+  for (const start of openLanes) chips.push({ start, end: prevEnd });
+
+  return chips.sort((a, b) => a.start - b.start || (b.end - b.start) - (a.end - a.start));
+}
+
 // ─── Main check ───────────────────────────────────────────────────────────────
 function runCheck() {
   const resultsEl = document.getElementById('results');
@@ -1774,27 +1815,17 @@ function runCheck() {
       }
     }
 
-    // Depth-aware sweep line per category: adjacent intervals merge into one band;
-    // overlapping intervals split at depth changes. Each band gets a ×N label when
-    // depth > 1 so "12p–2p ×2" and "2p–12a" replace a swallowed "12p–12a".
+    // Per category, split overlapping extra-coverage intervals into separate lanes
+    // (same logic as the Missing/Incomplete summary) so e.g. two people both extra
+    // 12p-2p shows as two distinct 12p-2p chips rather than one band with a ×2 tag.
     const catOrder = ['FOH', 'LEAD_FOH', 'BOH', 'LEAD_BOH', 'FINANCIAL', 'OTHER'];
-    const extraChips = []; // { cat, start, end, depth }
+    const extraChips = []; // { cat, start, end }
     const byCat = {};
     for (const r of allExtra) (byCat[r.cat] = byCat[r.cat] || []).push(r);
     for (const cat of catOrder) {
       const ivs = byCat[cat] || []; if (!ivs.length) continue;
-      const points = [];
-      for (const iv of ivs) { points.push([iv.start, 1]); points.push([iv.end, -1]); }
-      points.sort((a, b) => a[0] - b[0] || b[1] - a[1]);
-      let depth = 0, segStart = null; const segs = [];
-      for (const [t, d] of points) {
-        if (segStart !== null && t > segStart && depth > 0) segs.push({ start: segStart, end: t, depth });
-        depth += d; segStart = t;
-      }
-      for (const seg of segs) {
-        const last = extraChips[extraChips.length - 1];
-        if (last && last.cat === cat && last.depth === seg.depth && last.end === seg.start) last.end = seg.end;
-        else extraChips.push({ cat, start: seg.start, end: seg.end, depth: seg.depth });
+      for (const chip of splitOverlappingRanges(ivs)) {
+        extraChips.push({ cat, start: chip.start, end: chip.end });
       }
     }
 
@@ -1841,19 +1872,30 @@ function runCheck() {
         h.push(`<div style="flex:1;min-width:200px;"><h4>Extra coverage</h4><div style="margin-top:6px;display:flex;flex-wrap:wrap;gap:4px;">`);
         for (const c of extraChips) {
           const catLabel = { 'FOH':'FOH','BOH':'BOH','LEAD_FOH':'Lead-FOH','LEAD_BOH':'Lead-BOH','FINANCIAL':'Fin','OTHER':'Other' }[c.cat] || '';
-          const mult = c.depth > 1 ? `<span style="opacity:0.6;font-size:10px;margin-left:4px;">×${c.depth}</span>` : '';
-          h.push(`<span class="unmatched-shift" style="color:var(--accent2);border-color:rgba(245,158,11,0.3);"><span style="opacity:0.5;font-size:10px;margin-right:4px;">${catLabel}</span>${fmtMins(c.start)}–${fmtMins(c.end)}${mult}</span>`);
+          h.push(`<span class="unmatched-shift" style="color:var(--accent2);border-color:rgba(245,158,11,0.3);"><span style="opacity:0.5;font-size:10px;margin-right:4px;">${catLabel}</span>${fmtMins(c.start)}–${fmtMins(c.end)}</span>`);
         }
         h.push(`</div></div>`);
       }
 
       const missingSlots = slotResults.filter(r => r.status === 'missing' || r.status === 'partial');
       if (missingSlots.length > 0) {
-        h.push(`<div style="flex:1;min-width:200px;"><h4>Missing / incomplete</h4><div style="margin-top:6px;display:flex;flex-wrap:wrap;gap:4px;">`);
+        // Generalize per-slot gaps back to the underlying HS job code (FOH General,
+        // BOH General, etc). Overlapping/adjacent gaps within the same job code merge
+        // into one range; distinct, non-touching gaps stay as separate entries.
+        const catLabelMap = { FOH: 'FOH General', BOH: 'BOH General', LEAD_FOH: 'FOH Leadership', LEAD_BOH: 'BOH Leadership', FINANCIAL: 'Financial', OTHER: 'Other' };
+        const gapsByCat = {};
         for (const r of missingSlots) {
           const gaps = computeUncoveredRanges(r.window.start, r.window.end, r.chain, gapMins);
-          const gapStr = gaps.map(g => `${fmtMins(g.start)}–${fmtMins(g.end)}`).join(', ');
-          h.push(`<span class="unmatched-shift" style="color:#fca5a5;border-color:rgba(232,65,42,0.3);"><span style="opacity:0.7">${r.slot.name}:</span> ${gapStr}</span>`);
+          (gapsByCat[r.slot.type] = gapsByCat[r.slot.type] || []).push(...gaps);
+        }
+        h.push(`<div style="flex:1;min-width:200px;"><h4>Missing / incomplete</h4><div style="margin-top:6px;display:flex;flex-wrap:wrap;gap:4px;">`);
+        for (const cat of catOrder) {
+          const ranges = gapsByCat[cat];
+          if (!ranges || ranges.length === 0) continue;
+          const label = catLabelMap[cat] || cat;
+          for (const g of splitOverlappingRanges(ranges)) {
+            h.push(`<span class="unmatched-shift" style="color:#fca5a5;border-color:rgba(232,65,42,0.3);"><span style="opacity:0.7">${label}:</span> ${fmtMins(g.start)}–${fmtMins(g.end)}</span>`);
+          }
         }
         h.push(`</div></div>`);
       }
