@@ -1815,27 +1815,17 @@ function runCheck() {
       }
     }
 
-    // Depth-aware sweep line per category: adjacent intervals merge into one band;
-    // overlapping intervals split at depth changes. Each band gets a ×N label when
-    // depth > 1 so "12p–2p ×2" and "2p–12a" replace a swallowed "12p–12a".
+    // Per category, split overlapping extra-coverage intervals into separate lanes
+    // (same logic as the Missing/Incomplete summary) so e.g. two people both extra
+    // 12p-2p shows as two distinct 12p-2p chips rather than one band with a ×2 tag.
     const catOrder = ['FOH', 'LEAD_FOH', 'BOH', 'LEAD_BOH', 'FINANCIAL', 'OTHER'];
-    const extraChips = []; // { cat, start, end, depth }
+    const extraChips = []; // { cat, start, end }
     const byCat = {};
     for (const r of allExtra) (byCat[r.cat] = byCat[r.cat] || []).push(r);
     for (const cat of catOrder) {
       const ivs = byCat[cat] || []; if (!ivs.length) continue;
-      const points = [];
-      for (const iv of ivs) { points.push([iv.start, 1]); points.push([iv.end, -1]); }
-      points.sort((a, b) => a[0] - b[0] || b[1] - a[1]);
-      let depth = 0, segStart = null; const segs = [];
-      for (const [t, d] of points) {
-        if (segStart !== null && t > segStart && depth > 0) segs.push({ start: segStart, end: t, depth });
-        depth += d; segStart = t;
-      }
-      for (const seg of segs) {
-        const last = extraChips[extraChips.length - 1];
-        if (last && last.cat === cat && last.depth === seg.depth && last.end === seg.start) last.end = seg.end;
-        else extraChips.push({ cat, start: seg.start, end: seg.end, depth: seg.depth });
+      for (const chip of splitOverlappingRanges(ivs)) {
+        extraChips.push({ cat, start: chip.start, end: chip.end });
       }
     }
 
@@ -1882,8 +1872,7 @@ function runCheck() {
         h.push(`<div style="flex:1;min-width:200px;"><h4>Extra coverage</h4><div style="margin-top:6px;display:flex;flex-wrap:wrap;gap:4px;">`);
         for (const c of extraChips) {
           const catLabel = { 'FOH':'FOH','BOH':'BOH','LEAD_FOH':'Lead-FOH','LEAD_BOH':'Lead-BOH','FINANCIAL':'Fin','OTHER':'Other' }[c.cat] || '';
-          const mult = c.depth > 1 ? `<span style="opacity:0.6;font-size:10px;margin-left:4px;">×${c.depth}</span>` : '';
-          h.push(`<span class="unmatched-shift" style="color:var(--accent2);border-color:rgba(245,158,11,0.3);"><span style="opacity:0.5;font-size:10px;margin-right:4px;">${catLabel}</span>${fmtMins(c.start)}–${fmtMins(c.end)}${mult}</span>`);
+          h.push(`<span class="unmatched-shift" style="color:var(--accent2);border-color:rgba(245,158,11,0.3);"><span style="opacity:0.5;font-size:10px;margin-right:4px;">${catLabel}</span>${fmtMins(c.start)}–${fmtMins(c.end)}</span>`);
         }
         h.push(`</div></div>`);
       }
