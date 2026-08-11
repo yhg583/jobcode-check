@@ -1025,6 +1025,11 @@ const SCRIPTS = {
       return;
     }
 
+    if (!document.querySelector('tbody[aria-live="polite"] tr[role="row"]')) {
+      console.error('This does not look like the Daily Roster Report page (no roster rows found). Go to Reports → Daily Roster, then run this again.');
+      return;
+    }
+
     // Find Monday of the current week
     const dayOfWeek = currentDate.getDay();
     const monday = new Date(currentDate);
@@ -1042,8 +1047,8 @@ const SCRIPTS = {
 
     // Done — dump and copy
     const data = sessionStorage.getItem('hs_week_data');
-    if (!data) { console.error('No data stored — something went wrong.'); return; }
-    const parsed = JSON.parse(data);
+    const parsed = data ? JSON.parse(data) : [];
+    if (parsed.length === 0) { console.error('No shifts were found across the week. Make sure you are on the Daily Roster Report (Reports → Daily Roster) and try again.'); return; }
     const days = [...new Set(parsed.map(s=>s.day))];
     console.log(\`%c✓ Done! \${parsed.length} shifts across: \${days.join(', ')}\`, 'color:#10b981;font-weight:bold;font-size:14px');
     navigator.clipboard.writeText(data).then(()=>{
@@ -1162,6 +1167,11 @@ const SCRIPTS = {
     const currentDate = new Date(dateInput.value);
     if (isNaN(currentDate)) { fail('Could not read the date from the page.'); return; }
 
+    if (!document.querySelector('tbody[aria-live="polite"] tr[role="row"]')) {
+      fail('This does not look like the Daily Roster Report page. In HotSchedules, go to Reports -> Daily Roster, then click this bookmark again.');
+      return;
+    }
+
     const dayOfWeek = currentDate.getDay();
     const monday = new Date(currentDate);
     monday.setDate(currentDate.getDate() - (dayOfWeek === 0 ? 6 : dayOfWeek - 1));
@@ -1175,7 +1185,8 @@ const SCRIPTS = {
     }
 
     const data = sessionStorage.getItem('hs_week_data');
-    if (!data) { fail('No shift data was found - something went wrong scraping the page.'); return; }
+    const parsedCheck = data ? JSON.parse(data) : [];
+    if (parsedCheck.length === 0) { fail('No shifts were found across the week. Make sure you are on the Daily Roster Report page (Reports -> Daily Roster) and try again.'); return; }
 
     navigator.clipboard.writeText(data).catch(function(){});
 
