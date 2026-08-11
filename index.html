@@ -629,6 +629,13 @@
   <div class="tab" onclick="switchTab('help')">How To Use</div>
 </div>
 
+<!-- SHARED (READ-ONLY) VIEW — populated only when the URL carries a #shared= link -->
+<div id="sharedBanner" style="display:none;margin:16px 28px 0;padding:12px 16px;background:rgba(59,130,246,0.08);border:1px solid rgba(59,130,246,0.2);border-radius:6px;color:#93c5fd;font-size:12px;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
+  <span>📋 Shared results — read-only snapshot, nothing here can be edited or re-run.</span>
+  <a id="sharedOpenLive" href="#" style="color:#93c5fd;font-family:'IBM Plex Mono',monospace;font-size:11px;white-space:nowrap;">Open the live tool →</a>
+</div>
+<div id="sharedResults" style="display:none;padding:28px;"></div>
+
 <!-- CHECK PANEL -->
 <div class="panel active" id="panel-check">
   <div class="two-col">
@@ -668,12 +675,14 @@
   <div class="actions-row">
     <button class="btn" onclick="runCheck()">Run Check</button>
     <button class="btn-secondary" onclick="clearAll()">Clear</button>
+    <button class="btn-secondary" onclick="shareResults()">🔗 Share Results</button>
     <div class="divider"></div>
     <div class="gap-control">
       <label>Gap tolerance (min)</label>
       <input type="number" id="gapTolerance" value="15" min="0" max="60">
     </div>
   </div>
+  <div id="shareStatus" style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--muted);min-height:14px;margin:-14px 0 14px;"></div>
 
   <div id="results"></div>
 </div>
@@ -2078,8 +2087,102 @@ if (dropZone) {
   });
 }
 
+// ─── Share Results ────────────────────────────────────────────────────────────
+// Packs the already-computed #results HTML into a compressed, URL-safe blob and
+// puts it in the URL hash. The recipient doesn't need their own placement data
+// or schedule paste — the link carries the finished results themselves.
+function bufToBase64Url(buf) {
+  let binary = '';
+  const bytes = new Uint8Array(buf);
+  for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+function base64UrlToBuf(b64url) {
+  let b64 = b64url.replace(/-/g, '+').replace(/_/g, '/');
+  while (b64.length % 4) b64 += '=';
+  const binary = atob(b64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return bytes.buffer;
+}
+
+// Returns { data, compressed } — falls back to uncompressed if the browser
+// lacks CompressionStream (still works, just a longer link).
+async function compressString(str) {
+  if (typeof CompressionStream === 'function') {
+    const stream = new Blob([str]).stream().pipeThrough(new CompressionStream('gzip'));
+    const buf = await new Response(stream).arrayBuffer();
+    return { data: bufToBase64Url(buf), compressed: true };
+  }
+  return { data: bufToBase64Url(new TextEncoder().encode(str).buffer), compressed: false };
+}
+
+async function decompressString(b64url, isCompressed) {
+  const buf = base64UrlToBuf(b64url);
+  if (isCompressed) {
+    const stream = new Blob([buf]).stream().pipeThrough(new DecompressionStream('gzip'));
+    return await new Response(stream).text();
+  }
+  return new TextDecoder().decode(buf);
+}
+
+async function shareResults() {
+  const statusEl = document.getElementById('shareStatus');
+  const html = document.getElementById('results').innerHTML.trim();
+  if (!html) {
+    statusEl.textContent = 'Run a check first.';
+    statusEl.style.color = 'var(--accent)';
+    return;
+  }
+  statusEl.textContent = 'Building link…';
+  statusEl.style.color = 'var(--muted)';
+  try {
+    const { data, compressed } = await compressString(html);
+    const hashKey = compressed ? 'shared' : 'shared_raw';
+    const url = `${location.origin}${location.pathname}#${hashKey}=${data}`;
+    const sizeKb = (url.length / 1024).toFixed(1);
+    try {
+      await navigator.clipboard.writeText(url);
+      statusEl.textContent = `✓ Link copied (${sizeKb}KB) — paste it anywhere.`;
+      statusEl.style.color = 'var(--boh)';
+    } catch (e) {
+      statusEl.innerHTML = `Link ready (${sizeKb}KB) — copy manually: <input readonly value="${escapeHtml(url)}" style="width:50%;font-size:10px;padding:2px 6px;" onclick="this.select()">`;
+      statusEl.style.color = 'var(--accent2)';
+    }
+  } catch (e) {
+    statusEl.textContent = 'Could not build link: ' + e.message;
+    statusEl.style.color = 'var(--accent)';
+  }
+}
+
+// If the URL carries a shared-results link, render it read-only and skip the
+// normal interactive tool entirely — no placement, no schedule paste needed.
+async function checkSharedView() {
+  const m = location.hash.match(/^#(shared|shared_raw)=(.+)$/);
+  if (!m) return false;
+  const [, hashKey, data] = m;
+  try {
+    const html = await decompressString(data, hashKey === 'shared');
+    document.querySelector('.tabs').style.display = 'none';
+    document.querySelectorAll('.panel').forEach(p => { p.style.display = 'none'; });
+    document.getElementById('sharedOpenLive').href = location.origin + location.pathname;
+    const banner = document.getElementById('sharedBanner');
+    banner.style.display = 'flex';
+    const container = document.getElementById('sharedResults');
+    container.style.display = 'block';
+    container.innerHTML = html;
+  } catch (e) {
+    document.body.insertAdjacentHTML('beforeend',
+      `<div class="error-msg" style="margin:20px 28px;">Could not load shared results: ${escapeHtml(e.message)}</div>`);
+  }
+  return true;
+}
+
 // ─── Init ────────────────────────────────────────────────────────────────────
-(function init() {
+(async function init() {
+  if (await checkSharedView()) return;
+
   const p = loadProfile('mon_wed');
   renderPlacementTable(p ? p.data : []);
   switchProfile('mon_wed');
