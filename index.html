@@ -1083,16 +1083,23 @@ const SCRIPTS = {
   newTab.document.close();
 
   // The popup navigates through real HotSchedules pages after this, so there is
-  // no stable placeholder element left to update — surface failures as a banner
-  // injected into whatever page is currently loaded there instead.
-  function fail(msg) {
+  // no stable placeholder element left to update — surface progress and failures
+  // as a banner injected into whatever page is currently loaded there instead.
+  // Re-created on every call (not just updated) since HotSchedules re-rendering
+  // the roster on each date change can wipe out previously-injected elements.
+  function showBanner(text, isError) {
     try {
+      const old = newTab.document.getElementById('__jcc_banner');
+      if (old) old.remove();
+      const bg = isError ? '#e8412a' : '#1a1a1a';
+      const border = isError ? '' : 'border-bottom:3px solid #e8412a;';
       newTab.document.body.insertAdjacentHTML('afterbegin',
-        '<div style="position:fixed;top:0;left:0;right:0;background:#e8412a;color:#fff;padding:16px 24px;font-family:-apple-system,monospace;font-size:14px;z-index:2147483647;">Job Code Check: ' + msg + '</div>');
+        '<div id="__jcc_banner" style="position:fixed;top:0;left:0;right:0;background:' + bg + ';color:#fff;padding:14px 24px;font-family:-apple-system,monospace;font-size:14px;z-index:2147483647;' + border + '">Job Code Check: ' + text + '</div>');
     } catch (e) {
-      alert('Job Code Check: ' + msg);
+      if (isError) alert('Job Code Check: ' + text);
     }
   }
+  function fail(msg) { showBanner(msg, true); }
 
   function parseDateLabel(str) {
     if (!str) return null;
@@ -1210,6 +1217,7 @@ const SCRIPTS = {
     for (let offset = 0; offset < 6; offset++) {
       const target = new Date(monday);
       target.setDate(monday.getDate() + offset);
+      showBanner('scraping ' + dayNames[target.getDay()] + ' ' + (target.getMonth()+1) + '/' + target.getDate() + ' (' + (offset+1) + ' of 6) — this tab will jump to your results automatically, no need to do anything.', false);
       await setDateAndWait(target);
       scrapeCurrentDay();
     }
@@ -1218,6 +1226,7 @@ const SCRIPTS = {
     const parsedCheck = data ? JSON.parse(data) : [];
     if (parsedCheck.length === 0) { fail('No shifts were found across the week. Make sure the Schedules filter has everything selected and try again.'); return; }
 
+    showBanner('done scraping, building your results...', false);
     try { newTab.navigator.clipboard.writeText(data).catch(function(){}); } catch (e) {}
 
     try {
@@ -1236,6 +1245,7 @@ const SCRIPTS = {
       fail(e.message + ' Make sure you are logged in to HotSchedules and try again.');
       return;
     }
+    showBanner('found the Daily Roster, starting the scrape...', false);
     await runFullWeek();
   }
 
