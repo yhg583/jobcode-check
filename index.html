@@ -625,6 +625,7 @@
 <div class="tabs">
   <div class="tab active" onclick="switchTab('check')">Run Check</div>
   <div class="tab" onclick="switchTab('placement')">Placement</div>
+  <div class="tab" onclick="switchTab('jobcodes')">Job Codes</div>
   <div class="tab" onclick="switchTab('scripts')">Console Scripts</div>
   <div class="tab" onclick="switchTab('help')">How To Use</div>
 </div>
@@ -725,6 +726,34 @@
         </tr>
       </thead>
       <tbody id="placementBody"></tbody>
+    </table>
+  </div>
+</div>
+
+<!-- JOB CODE MAPPING -->
+<div class="panel" id="panel-jobcodes">
+  <p style="color:var(--muted);font-size:12px;margin-bottom:16px;max-width:640px;line-height:1.6;">
+    Job codes are categorized automatically (FOH/BOH, leadership, financial, etc). When HotSchedules adds or renames
+    a code — like the new "Team Leader" titles — add an exact-match override here instead of editing the pasted
+    schedule text by hand. Overrides always win over the automatic guess.
+  </p>
+
+  <div style="display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap;">
+    <button class="btn" onclick="addJobOverrideRow()">+ Add Mapping</button>
+  </div>
+
+  <div id="jobOverridesStatus" style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--muted);min-height:14px;margin-bottom:12px;"></div>
+
+  <div class="scroll-x">
+    <table class="placement-table" id="jobOverridesTable">
+      <thead>
+        <tr>
+          <th>Job Code (exact match, as it appears in HotSchedules)</th>
+          <th>Counts As</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody id="jobOverridesBody"></tbody>
     </table>
   </div>
 </div>
@@ -858,6 +887,14 @@
       </div>
     </div>
 
+    <div class="step">
+      <div class="step-num">7</div>
+      <div class="step-content">
+        <h3>HotSchedules added or renamed a job code</h3>
+        <p>Job codes are matched automatically (e.g. anything with "BOH" and "leader" counts as BOH leadership). If a new or renamed code gets miscategorized — like a "Team Leader" title that should actually count in the general pool — go to the <strong>Job Codes</strong> tab and add it there instead of editing the pasted schedule text by hand. Type the job code exactly as it appears in HotSchedules, pick what it should count as, and it'll be applied automatically on every future check.</p>
+      </div>
+    </div>
+
     <div style="margin-top:32px;padding:14px 16px;background:var(--surface);border:1px solid var(--border);border-radius:6px;">
       <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:0.1em;text-transform:uppercase;color:var(--muted);margin-bottom:8px;">Quick Reference — Gap Tolerance</div>
       <p style="font-size:12px;">The <strong>Gap Tolerance</strong> setting (top right of Run Check) controls how many minutes of uncovered time is still considered "OK." The default is 15 minutes — so if one person's shift ends at 2:00p and the next starts at 2:10p, that gap won't trigger a warning. Set it to 0 for strict back-to-back checking.</p>
@@ -870,7 +907,7 @@
 // ─── Tab switching ───────────────────────────────────────────────────────────
 function switchTab(id) {
   document.querySelectorAll('.tab').forEach((t,i) => {
-    const ids = ['check','placement','scripts','help'];
+    const ids = ['check','placement','jobcodes','scripts','help'];
     t.classList.toggle('active', ids[i] === id);
   });
   document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
@@ -1283,6 +1320,80 @@ function getPlacementFromTable() {
   return slots;
 }
 
+// ─── Job code overrides ───────────────────────────────────────────────────────
+// Exact-match (case-insensitive) overrides that win over categorizeJob's normal
+// keyword heuristic — e.g. HotSchedules adding "BOH - Team Leader" as a new code
+// that should still count in the general BOH pool rather than leadership.
+const JOB_OVERRIDES_KEY = 'cfa_job_code_overrides';
+const JOB_CATEGORY_DISPLAY = ['FOH','BOH','Lead-FOH','Lead-BOH','Financial','Other','Ignore'];
+const JOB_CATEGORY_TO_INTERNAL = { 'FOH':'FOH','BOH':'BOH','LEAD-FOH':'LEAD_FOH','LEAD-BOH':'LEAD_BOH','FINANCIAL':'FINANCIAL','OTHER':'OTHER','IGNORE':'IGNORE' };
+
+function loadJobOverrides() {
+  const raw = localStorage.getItem(JOB_OVERRIDES_KEY);
+  return raw ? JSON.parse(raw) : { data: [], saved: null };
+}
+
+function saveJobOverrides(rows) {
+  localStorage.setItem(JOB_OVERRIDES_KEY, JSON.stringify({ data: rows, saved: new Date().toLocaleString() }));
+  updateJobOverridesStatus();
+}
+
+function updateJobOverridesStatus() {
+  const { data, saved } = loadJobOverrides();
+  const el = document.getElementById('jobOverridesStatus');
+  if (!el) return;
+  el.textContent = data.length
+    ? `${data.length} override${data.length === 1 ? '' : 's'} · ${saved}`
+    : 'No overrides — every job code is categorized automatically.';
+}
+
+// Builds the lookup categorizeJob() consults: lowercased/trimmed job code -> internal category
+function buildJobOverrideMap() {
+  const { data } = loadJobOverrides();
+  const map = new Map();
+  for (const row of data) {
+    if (!row.jobCode) continue;
+    const internal = JOB_CATEGORY_TO_INTERNAL[(row.category || '').toUpperCase()] || row.category;
+    map.set(row.jobCode.trim().toLowerCase(), internal);
+  }
+  return map;
+}
+
+function renderJobOverridesTable() {
+  const tbody = document.getElementById('jobOverridesBody');
+  tbody.innerHTML = '';
+  const { data } = loadJobOverrides();
+  for (const row of data) addJobOverrideRow(row.jobCode, row.category);
+  updateJobOverridesStatus();
+}
+
+function addJobOverrideRow(jobCode = '', category = 'BOH') {
+  const tbody = document.getElementById('jobOverridesBody');
+  const tr = document.createElement('tr');
+  tr.innerHTML = `
+    <td><input value="${escapeHtml(jobCode)}" placeholder="e.g. BOH - Team Leader"></td>
+    <td>
+      <select class="type-select">
+        ${JOB_CATEGORY_DISPLAY.map(t => `<option ${t === category ? 'selected' : ''}>${t}</option>`).join('')}
+      </select>
+    </td>
+    <td><button class="del-btn" onclick="this.closest('tr').remove(); saveJobOverridesFromTable()">×</button></td>
+  `;
+  tbody.appendChild(tr);
+  tr.querySelectorAll('input, select').forEach(el => el.addEventListener('change', saveJobOverridesFromTable));
+}
+
+function saveJobOverridesFromTable() {
+  const rows = document.querySelectorAll('#jobOverridesBody tr');
+  const data = [];
+  for (const row of rows) {
+    const jobCode = row.querySelector('input').value.trim();
+    const category = row.querySelector('select').value;
+    if (jobCode) data.push({ jobCode, category });
+  }
+  saveJobOverrides(data);
+}
+
 function exportPlacementCSV() {
   const slots = getPlacementFromTable();
   const profileName = { mon_wed:'mon-wed', thu_fri:'thu-fri', sat:'saturday' }[currentProfile];
@@ -1489,8 +1600,12 @@ function parseScheduleJSON(text) {
   }
 }
 
-function categorizeJob(job) {
+function categorizeJob(job, overrides) {
   if (!job) return 'OTHER';
+  if (overrides) {
+    const hit = overrides.get(job.trim().toLowerCase());
+    if (hit) return hit;
+  }
   job = job.toLowerCase();
   if (job.includes('other store') || job.includes('mall') || job.includes('in training') || job.includes('training')) return 'IGNORE';
   if (job.startsWith('cow')) return 'OTHER';
@@ -1690,10 +1805,11 @@ function runCheck() {
   }
 
   // Parse shift times — drop ignored categories
+  const jobOverrides = buildJobOverrideMap();
   const parsed = allShifts.map(s => {
     const times = parseShiftTime(s.time);
     if (!times) return null;
-    const cat = categorizeJob(s.job);
+    const cat = categorizeJob(s.job, jobOverrides);
     if (cat === 'IGNORE') return null;
     // Plain "Administrative" is already dropped above via cat === 'IGNORE'. This only
     // catches the rarer case of a job code containing BOTH "administrative" and
@@ -2187,6 +2303,7 @@ async function checkSharedView() {
   renderPlacementTable(p ? p.data : []);
   switchProfile('mon_wed');
   updateAllProfileStatuses();
+  renderJobOverridesTable();
   Object.entries(SCRIPTS).forEach(([id, code]) => {
     const el = document.getElementById(id);
     if (el) el.textContent = code;
