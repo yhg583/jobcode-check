@@ -764,7 +764,7 @@
   <div style="margin-bottom:32px;padding:16px 18px;background:rgba(232,65,42,0.06);border:1px solid rgba(232,65,42,0.25);border-radius:6px;">
     <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:0.1em;text-transform:uppercase;color:var(--accent2);margin-bottom:8px;">One-click setup (recommended)</div>
     <p style="font-size:12px;color:var(--muted);margin-bottom:14px;line-height:1.6;">
-      Drag this button to your bookmarks bar — once. From then on, open the Daily Roster Report in HotSchedules and just click it: it scrapes the full week, opens this tool in a new tab, and runs the check automatically. No console, no copy-paste.
+      Drag this button to your bookmarks bar — once. From then on, click it from <strong>anywhere</strong> in HotSchedules (as long as you're logged in): it opens the Daily Roster Report itself in a new tab, scrapes the full week, opens this tool, and runs the check automatically. No console, no copy-paste, no need to navigate anywhere first.
     </p>
     <a id="autoRunBookmarklet" href="#" onclick="return false;" draggable="true"
        style="display:inline-block;background:var(--accent);color:white;padding:10px 20px;border-radius:6px;font-family:'IBM Plex Mono',monospace;font-size:12px;font-weight:500;letter-spacing:0.06em;text-decoration:none;cursor:grab;">
@@ -1025,6 +1025,11 @@ const SCRIPTS = {
       return;
     }
 
+    if (!document.querySelector('tbody[aria-live="polite"] tr[role="row"]')) {
+      console.error('This does not look like the Daily Roster Report page (no roster rows found). Go to Reports → Daily Roster, then run this again.');
+      return;
+    }
+
     // Find Monday of the current week
     const dayOfWeek = currentDate.getDay();
     const monday = new Date(currentDate);
@@ -1042,8 +1047,8 @@ const SCRIPTS = {
 
     // Done — dump and copy
     const data = sessionStorage.getItem('hs_week_data');
-    if (!data) { console.error('No data stored — something went wrong.'); return; }
-    const parsed = JSON.parse(data);
+    const parsed = data ? JSON.parse(data) : [];
+    if (parsed.length === 0) { console.error('No shifts were found across the week. Make sure you are on the Daily Roster Report (Reports → Daily Roster) and try again.'); return; }
     const days = [...new Set(parsed.map(s=>s.day))];
     console.log(\`%c✓ Done! \${parsed.length} shifts across: \${days.join(', ')}\`, 'color:#10b981;font-weight:bold;font-size:14px');
     navigator.clipboard.writeText(data).then(()=>{
@@ -1059,18 +1064,35 @@ const SCRIPTS = {
 
   'autoRunScript-src': `(function(){
   const TOOL_URL = ${JSON.stringify(location.origin + location.pathname)};
+  const DAILY_ROSTER_BASE = 'https://app.hotschedules.com/hs/newReport.hs#roster/';
   const dayNames = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+
+  function todayFormatted() {
+    const d = new Date();
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const dd = String(d.getDate()).padStart(2, '0');
+    return d.getFullYear() + '-' + mm + '-' + dd;
+  }
 
   const newTab = window.open('', '_blank');
   if (!newTab) {
     alert('Job Code Check: your browser blocked the popup. Allow popups for this site and click the bookmark again.');
     return;
   }
-  newTab.document.write('<html><head><title>Job Code Check</title></head><body style="background:#0f0f0f;color:#e8e8e8;font-family:-apple-system,monospace;padding:60px 40px;font-size:14px;line-height:1.6;"><div id="s">Scraping the schedule for this week... this will take about 15-20 seconds.<br><br>Keep the HotSchedules tab open and active while this runs.</div></body></html>');
+  newTab.document.write('<html><head><title>Job Code Check</title></head><body style="background:#0f0f0f;color:#e8e8e8;font-family:-apple-system,monospace;padding:60px 40px;font-size:14px;line-height:1.6;">Opening the Daily Roster Report...</body></html>');
   newTab.document.close();
 
-  function showStatus(html) { newTab.document.getElementById('s').innerHTML = html; }
-  function fail(msg) { showStatus('<span style="color:#fca5a5;">Error: ' + msg + '</span>'); }
+  // The popup navigates through real HotSchedules pages after this, so there is
+  // no stable placeholder element left to update — surface failures as a banner
+  // injected into whatever page is currently loaded there instead.
+  function fail(msg) {
+    try {
+      newTab.document.body.insertAdjacentHTML('afterbegin',
+        '<div style="position:fixed;top:0;left:0;right:0;background:#e8412a;color:#fff;padding:16px 24px;font-family:-apple-system,monospace;font-size:14px;z-index:2147483647;">Job Code Check: ' + msg + '</div>');
+    } catch (e) {
+      alert('Job Code Check: ' + msg);
+    }
+  }
 
   function parseDateLabel(str) {
     if (!str) return null;
@@ -1080,14 +1102,14 @@ const SCRIPTS = {
   }
 
   function getDateInput() {
-    return document.querySelector('input.datepicker, input[name="datepicker"], div[data-group="datepicker"] input');
+    return newTab.document.querySelector('input.datepicker, input[name="datepicker"], div[data-group="datepicker"] input');
   }
 
   function scrapeCurrentDay() {
     const dateInput = getDateInput();
     const dayLabel = parseDateLabel(dateInput?.value);
     if (!dayLabel) return null;
-    const rows = [...document.querySelectorAll('tbody[aria-live="polite"] tr[role="row"]')];
+    const rows = [...newTab.document.querySelectorAll('tbody[aria-live="polite"] tr[role="row"]')];
     const shifts = rows.map(row => {
       const nameEl = row.querySelector('.preferedname');
       const lastEl = row.querySelector('.lastname');
@@ -1106,9 +1128,9 @@ const SCRIPTS = {
       return { name, time: rawTime, job, day: dayLabel };
     }).filter(Boolean);
     const key = 'hs_week_data';
-    const existing = JSON.parse(sessionStorage.getItem(key) || '[]');
+    const existing = JSON.parse(newTab.sessionStorage.getItem(key) || '[]');
     const merged = [...existing.filter(s => s.day !== dayLabel), ...shifts];
-    sessionStorage.setItem(key, JSON.stringify(merged));
+    newTab.sessionStorage.setItem(key, JSON.stringify(merged));
     return dayLabel;
   }
 
@@ -1116,7 +1138,7 @@ const SCRIPTS = {
     return new Promise(resolve => {
       const input = getDateInput();
       if (!input) { resolve(); return; }
-      const tbody = document.querySelector('tbody[aria-live="polite"]');
+      const tbody = newTab.document.querySelector('tbody[aria-live="polite"]');
       const oldHTML = tbody ? tbody.innerHTML : '';
       const dateStr = (dateObj.getMonth()+1) + '/' + dateObj.getDate() + '/' + dateObj.getFullYear();
       let resolved = false;
@@ -1134,9 +1156,9 @@ const SCRIPTS = {
       } else {
         setTimeout(done, 4000);
       }
-      $(input).datepicker('setDate', new Date(dateStr));
-      $(input).trigger('change');
-      $(input).trigger('blur');
+      newTab.$(input).datepicker('setDate', new Date(dateStr));
+      newTab.$(input).trigger('change');
+      newTab.$(input).trigger('blur');
     });
   }
 
@@ -1156,17 +1178,35 @@ const SCRIPTS = {
     return { data: bufToBase64Url(new TextEncoder().encode(str).buffer), key: 'autorun_raw' };
   }
 
+  // Poll the popup (now navigating through real HotSchedules pages, possibly a
+  // login screen first) until it actually renders roster rows, or give up.
+  function waitForRosterReady(timeoutMs) {
+    return new Promise((resolve, reject) => {
+      const start = Date.now();
+      (function poll() {
+        let ready = false;
+        try {
+          ready = newTab.document.readyState === 'complete' &&
+                  !!newTab.document.querySelector('tbody[aria-live="polite"] tr[role="row"]');
+        } catch (e) {}
+        if (ready) { resolve(); return; }
+        if (Date.now() - start > timeoutMs) { reject(new Error('Timed out waiting for the Daily Roster page to load.')); return; }
+        setTimeout(poll, 300);
+      })();
+    });
+  }
+
   async function runFullWeek() {
     const dateInput = getDateInput();
-    if (!dateInput?.value) { fail('Could not find the date picker. Open the Daily Roster Report first, then click this bookmark again.'); return; }
+    if (!dateInput?.value) { fail('Could not find the date picker on the Daily Roster page.'); return; }
     const currentDate = new Date(dateInput.value);
-    if (isNaN(currentDate)) { fail('Could not read the date from the page.'); return; }
+    if (isNaN(currentDate)) { fail('Could not read the date from the Daily Roster page.'); return; }
 
     const dayOfWeek = currentDate.getDay();
     const monday = new Date(currentDate);
     monday.setDate(currentDate.getDate() - (dayOfWeek === 0 ? 6 : dayOfWeek - 1));
 
-    sessionStorage.removeItem('hs_week_data');
+    newTab.sessionStorage.removeItem('hs_week_data');
     for (let offset = 0; offset < 6; offset++) {
       const target = new Date(monday);
       target.setDate(monday.getDate() + offset);
@@ -1174,20 +1214,32 @@ const SCRIPTS = {
       scrapeCurrentDay();
     }
 
-    const data = sessionStorage.getItem('hs_week_data');
-    if (!data) { fail('No shift data was found - something went wrong scraping the page.'); return; }
+    const data = newTab.sessionStorage.getItem('hs_week_data');
+    const parsedCheck = data ? JSON.parse(data) : [];
+    if (parsedCheck.length === 0) { fail('No shifts were found across the week. Make sure the Schedules filter has everything selected and try again.'); return; }
 
-    navigator.clipboard.writeText(data).catch(function(){});
+    try { newTab.navigator.clipboard.writeText(data).catch(function(){}); } catch (e) {}
 
     try {
       const result = await compressData(data);
       newTab.location.href = TOOL_URL + '#' + result.key + '=' + result.data;
     } catch(e) {
-      fail('Scraped the schedule, but could not build the results link (' + e.message + '). The data is on your clipboard - open the tool manually and paste it in.');
+      fail('Scraped the schedule, but could not build the results link (' + e.message + ').');
     }
   }
 
-  runFullWeek();
+  async function run() {
+    newTab.location.href = DAILY_ROSTER_BASE + todayFormatted();
+    try {
+      await waitForRosterReady(25000);
+    } catch (e) {
+      fail(e.message + ' Make sure you are logged in to HotSchedules and try again.');
+      return;
+    }
+    await runFullWeek();
+  }
+
+  run();
 })();`,
 
   'scrapeScript-src': `(function(){
