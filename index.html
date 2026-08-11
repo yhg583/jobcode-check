@@ -760,11 +760,27 @@
 
 <!-- SCRIPTS PANEL -->
 <div class="panel" id="panel-scripts">
+
+  <div style="margin-bottom:32px;padding:16px 18px;background:rgba(232,65,42,0.06);border:1px solid rgba(232,65,42,0.25);border-radius:6px;">
+    <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:0.1em;text-transform:uppercase;color:var(--accent2);margin-bottom:8px;">One-click setup (recommended)</div>
+    <p style="font-size:12px;color:var(--muted);margin-bottom:14px;line-height:1.6;">
+      Drag this button to your bookmarks bar — once. From then on, open the Daily Roster Report in HotSchedules and just click it: it scrapes the full week, opens this tool in a new tab, and runs the check automatically. No console, no copy-paste.
+    </p>
+    <a id="autoRunBookmarklet" href="#" onclick="return false;" draggable="true"
+       style="display:inline-block;background:var(--accent);color:white;padding:10px 20px;border-radius:6px;font-family:'IBM Plex Mono',monospace;font-size:12px;font-weight:500;letter-spacing:0.06em;text-decoration:none;cursor:grab;">
+      📅 Run Job Code Check
+    </a>
+    <p style="font-size:11px;color:var(--muted);margin-top:12px;">
+      Uses whichever placement is saved in <em>this</em> browser, so make sure Sync from Sheets has been run here at least once. Requires popups to be allowed for this site.
+    </p>
+  </div>
+
   <div class="step">
     <div class="step-num">1</div>
     <div class="step-content">
       <h3>Navigate to the HotSchedules Daily Report</h3>
       <p>Open the web-based Daily Report (not the PDF). Set the date picker to <strong>any day in the week</strong> you want to check — the script will find Monday automatically. Make sure all schedules are selected in the Schedules filter.</p>
+      <p style="color:var(--muted);font-size:12px;">The steps below are the manual fallback — use the one-click bookmarklet above instead if you can.</p>
     </div>
   </div>
 
@@ -1041,6 +1057,139 @@ const SCRIPTS = {
   runFullWeek();
 })();`,
 
+  'autoRunScript-src': `(function(){
+  const TOOL_URL = ${JSON.stringify(location.origin + location.pathname)};
+  const dayNames = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+
+  const newTab = window.open('', '_blank');
+  if (!newTab) {
+    alert('Job Code Check: your browser blocked the popup. Allow popups for this site and click the bookmark again.');
+    return;
+  }
+  newTab.document.write('<html><head><title>Job Code Check</title></head><body style="background:#0f0f0f;color:#e8e8e8;font-family:-apple-system,monospace;padding:60px 40px;font-size:14px;line-height:1.6;"><div id="s">Scraping the schedule for this week... this will take about 15-20 seconds.<br><br>Keep the HotSchedules tab open and active while this runs.</div></body></html>');
+  newTab.document.close();
+
+  function showStatus(html) { newTab.document.getElementById('s').innerHTML = html; }
+  function fail(msg) { showStatus('<span style="color:#fca5a5;">Error: ' + msg + '</span>'); }
+
+  function parseDateLabel(str) {
+    if (!str) return null;
+    const d = new Date(str);
+    if (isNaN(d)) return null;
+    return dayNames[d.getDay()] + ' ' + (d.getMonth()+1) + '/' + d.getDate();
+  }
+
+  function getDateInput() {
+    return document.querySelector('input.datepicker, input[name="datepicker"], div[data-group="datepicker"] input');
+  }
+
+  function scrapeCurrentDay() {
+    const dateInput = getDateInput();
+    const dayLabel = parseDateLabel(dateInput?.value);
+    if (!dayLabel) return null;
+    const rows = [...document.querySelectorAll('tbody[aria-live="polite"] tr[role="row"]')];
+    const shifts = rows.map(row => {
+      const nameEl = row.querySelector('.preferedname');
+      const lastEl = row.querySelector('.lastname');
+      const nameCell = row.querySelector('th.name');
+      const timeDiv = row.querySelector('td div');
+      const jobEl = row.querySelector('.NoWrap');
+      if (!timeDiv || !jobEl) return null;
+      const rawTime = timeDiv.innerText.trim();
+      const job = jobEl.innerText.replace(/\\s+/g,' ').trim();
+      let name;
+      if (nameEl) {
+        name = ((nameEl?.innerText||'') + ' ' + (lastEl?.innerText||'')).trim();
+      } else {
+        name = (nameCell?.innerText||'').trim() || 'House Shift';
+      }
+      return { name, time: rawTime, job, day: dayLabel };
+    }).filter(Boolean);
+    const key = 'hs_week_data';
+    const existing = JSON.parse(sessionStorage.getItem(key) || '[]');
+    const merged = [...existing.filter(s => s.day !== dayLabel), ...shifts];
+    sessionStorage.setItem(key, JSON.stringify(merged));
+    return dayLabel;
+  }
+
+  function setDateAndWait(dateObj) {
+    return new Promise(resolve => {
+      const input = getDateInput();
+      if (!input) { resolve(); return; }
+      const tbody = document.querySelector('tbody[aria-live="polite"]');
+      const oldHTML = tbody ? tbody.innerHTML : '';
+      const dateStr = (dateObj.getMonth()+1) + '/' + dateObj.getDate() + '/' + dateObj.getFullYear();
+      let resolved = false;
+      const done = () => { if (!resolved) { resolved = true; resolve(); } };
+      const timeout = setTimeout(done, 5000);
+      if (tbody) {
+        const observer = new MutationObserver(() => {
+          if (tbody.innerHTML !== oldHTML) {
+            observer.disconnect();
+            clearTimeout(timeout);
+            setTimeout(done, 600);
+          }
+        });
+        observer.observe(tbody, { childList: true, subtree: true, characterData: true });
+      } else {
+        setTimeout(done, 4000);
+      }
+      $(input).datepicker('setDate', new Date(dateStr));
+      $(input).trigger('change');
+      $(input).trigger('blur');
+    });
+  }
+
+  function bufToBase64Url(buf) {
+    let binary = '';
+    const bytes = new Uint8Array(buf);
+    for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+    return btoa(binary).replace(/\\+/g,'-').replace(/\\//g,'_').replace(/=+$/,'');
+  }
+
+  async function compressData(str) {
+    if (typeof CompressionStream === 'function') {
+      const stream = new Blob([str]).stream().pipeThrough(new CompressionStream('gzip'));
+      const buf = await new Response(stream).arrayBuffer();
+      return { data: bufToBase64Url(buf), key: 'autorun' };
+    }
+    return { data: bufToBase64Url(new TextEncoder().encode(str).buffer), key: 'autorun_raw' };
+  }
+
+  async function runFullWeek() {
+    const dateInput = getDateInput();
+    if (!dateInput?.value) { fail('Could not find the date picker. Open the Daily Roster Report first, then click this bookmark again.'); return; }
+    const currentDate = new Date(dateInput.value);
+    if (isNaN(currentDate)) { fail('Could not read the date from the page.'); return; }
+
+    const dayOfWeek = currentDate.getDay();
+    const monday = new Date(currentDate);
+    monday.setDate(currentDate.getDate() - (dayOfWeek === 0 ? 6 : dayOfWeek - 1));
+
+    sessionStorage.removeItem('hs_week_data');
+    for (let offset = 0; offset < 6; offset++) {
+      const target = new Date(monday);
+      target.setDate(monday.getDate() + offset);
+      await setDateAndWait(target);
+      scrapeCurrentDay();
+    }
+
+    const data = sessionStorage.getItem('hs_week_data');
+    if (!data) { fail('No shift data was found - something went wrong scraping the page.'); return; }
+
+    navigator.clipboard.writeText(data).catch(function(){});
+
+    try {
+      const result = await compressData(data);
+      newTab.location.href = TOOL_URL + '#' + result.key + '=' + result.data;
+    } catch(e) {
+      fail('Scraped the schedule, but could not build the results link (' + e.message + '). The data is on your clipboard - open the tool manually and paste it in.');
+    }
+  }
+
+  runFullWeek();
+})();`,
+
   'scrapeScript-src': `(function(){
   function parseDateLabel(str) {
     if (!str) return null;
@@ -1116,6 +1265,10 @@ function copyCode(id, btn) {
     btn.classList.add('copied');
     setTimeout(() => { btn.textContent = 'Copy'; btn.classList.remove('copied'); }, 2000);
   });
+}
+
+function buildBookmarkletHref() {
+  return 'javascript:' + encodeURIComponent(SCRIPTS['autoRunScript-src']);
 }
 
 // ─── HTML escaping ───────────────────────────────────────────────────────────
@@ -2295,6 +2448,28 @@ async function checkSharedView() {
   return true;
 }
 
+// If the URL carries data scraped by the bookmarklet, load it into the Schedule
+// Data box and run the check automatically — using whatever placement is already
+// saved in this browser. Strips the hash afterward so a refresh doesn't re-run it
+// and the address bar doesn't keep the (potentially large) data blob around.
+async function checkAutoRun() {
+  const m = location.hash.match(/^#(autorun|autorun_raw)=(.+)$/);
+  if (!m) return false;
+  const [, hashKey, data] = m;
+  history.replaceState(null, '', location.pathname + location.search);
+  try {
+    const text = await decompressString(data, hashKey === 'autorun');
+    document.getElementById('scheduleInput').value = text;
+    runCheck();
+    document.getElementById('results').insertAdjacentHTML('afterbegin',
+      `<div class="info-msg" style="margin-bottom:16px;">✓ Auto-loaded from the HotSchedules bookmarklet.</div>`);
+  } catch (e) {
+    document.getElementById('results').innerHTML =
+      `<div class="error-msg">Could not load the scraped schedule: ${escapeHtml(e.message)}. The data should still be on your clipboard — paste it in manually and click Run Check.</div>`;
+  }
+  return true;
+}
+
 // ─── Init ────────────────────────────────────────────────────────────────────
 (async function init() {
   if (await checkSharedView()) return;
@@ -2308,6 +2483,8 @@ async function checkSharedView() {
     const el = document.getElementById(id);
     if (el) el.textContent = code;
   });
+  const bookmarklet = document.getElementById('autoRunBookmarklet');
+  if (bookmarklet) bookmarklet.href = buildBookmarkletHref();
   const savedUrl = localStorage.getItem('cfa_sheets_url');
   if (savedUrl) {
     ['sheetsUrl','sheetsUrlPlacement'].forEach(id => {
@@ -2315,6 +2492,8 @@ async function checkSharedView() {
       if (el) el.value = savedUrl;
     });
   }
+
+  await checkAutoRun();
 })();
 </script>
 </body>
