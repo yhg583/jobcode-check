@@ -1064,11 +1064,45 @@ const SCRIPTS = {
 
   'autoRunScript-src': `(function(){
   const TOOL_URL = ${JSON.stringify(location.origin + location.pathname)};
-  const DAILY_ROSTER_BASE = 'https://app.hotschedules.com/hs/newReport.hs#roster/';
+  const DAILY_ROSTER_BASE = 'https://app.hotschedules.com/hs/newReport.hs';
   const dayNames = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+
+  // Chromium quirk: an about:blank popup inherits its opener's URL as a base for
+  // navigation comparison. If the popup's target happens to share the same path
+  // as wherever the bookmarklet was clicked from (e.g. clicking it again from
+  // Daily Roster itself) and differs only by hash, location.href assignment gets
+  // silently treated as an in-page anchor jump instead of a real navigation -- no
+  // network request, no reload, the tab just sits there forever. A cache-busting
+  // query param makes the path+query always genuinely different, forcing a real
+  // navigation every time regardless of where this was clicked from.
+  function cacheBust() { return '?_jcc=' + Date.now(); }
 
   function todayFormatted() {
     const d = new Date();
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const dd = String(d.getDate()).padStart(2, '0');
+    return d.getFullYear() + '-' + mm + '-' + dd;
+  }
+
+  // HotSchedules' hash-routed pages (Scheduling: #week/2026-09-06, Daily Roster:
+  // #roster/2026-08-16) encode the week you're actually looking at right in the
+  // URL. Pull that from wherever the bookmarklet was clicked so it opens the
+  // Daily Roster for the week you're working on, not just today's real date.
+  function targetDateFromCurrentUrl() {
+    const m = location.href.match(/(\\d{4}-\\d{2}-\\d{2})/);
+    if (!m) return null;
+    const d = new Date(m[1] + 'T00:00:00');
+    if (isNaN(d)) return null;
+    // Scheduling's #week/ labels a week by its LEADING Sunday (e.g. #week/2026-09-06
+    // for the Sun 9/6 - Sat 9/12 week) -- the opposite of the standard Mon-Sun
+    // convention runFullWeek uses below to find "this week's Monday" (where a
+    // Sunday is treated as the LAST day of the PRECEDING week). Left alone, a
+    // Sunday pulled straight from #week/ would resolve one week too early.
+    // Nudging the date forward by a day fixes that (a Sunday week-label becomes
+    // the Monday that actually starts its business week) and is a no-op for
+    // every other day of the week, since Mon-Sat all stay within the same week
+    // either way.
+    d.setDate(d.getDate() + 1);
     const mm = String(d.getMonth() + 1).padStart(2, '0');
     const dd = String(d.getDate()).padStart(2, '0');
     return d.getFullYear() + '-' + mm + '-' + dd;
@@ -1100,6 +1134,45 @@ const SCRIPTS = {
     }
   }
   function fail(msg) { showBanner(msg, true); }
+
+  // Read-only check of the Schedules filter (top of the Daily Roster page) --
+  // if a group like "Delivery" or "Leadership" got unchecked, the scrape would
+  // silently only see a partial roster. Never touches a checkbox: only clicks
+  // the dropdown's own open/close toggle to read the list, then closes it
+  // again, so this can't accidentally change what's selected.
+  function checkScheduleFilter() {
+    return new Promise(resolve => {
+      try {
+        const btn = newTab.document.querySelector('.navigation.multi-select[data-group="schedules"]');
+        const span = btn ? btn.querySelector('span') : null;
+        const summary = span ? span.textContent.trim() : '';
+        const m = summary.match(/(\\d+)\\s+of\\s+(\\d+)\\s+Selected/i);
+        if (!m || m[1] === m[2]) { resolve(null); return; }
+
+        btn.click();
+        setTimeout(() => {
+          const unchecked = [];
+          try {
+            const popout = newTab.document.getElementById('filter-select');
+            if (popout) {
+              popout.querySelectorAll('.checkbox').forEach(row => {
+                const input = row.querySelector('input[type="checkbox"]');
+                const label = row.querySelector('.checkbox-label');
+                if (input && label && !input.checked && input.getAttribute('data-id') !== '-1') {
+                  unchecked.push(label.textContent.trim());
+                }
+              });
+            }
+          } catch (e) {}
+          try { btn.click(); } catch (e) {}
+          const detail = unchecked.length ? ' (' + unchecked.join(', ') + ' unchecked)' : '';
+          resolve('Schedules filter is ' + m[1] + ' of ' + m[2] + ' selected' + detail + ' -- results may be incomplete.');
+        }, 400);
+      } catch (e) {
+        resolve(null);
+      }
+    });
+  }
 
   function parseDateLabel(str) {
     if (!str) return null;
@@ -1186,7 +1259,10 @@ const SCRIPTS = {
   }
 
   // Poll the popup (now navigating through real HotSchedules pages, possibly a
-  // login screen first) until it actually renders roster rows, or give up.
+  // login screen first) until it actually shows the Daily Roster page structure.
+  // Deliberately checks for the roster table + date picker existing, NOT for at
+  // least one shift row — a day with zero shifts (e.g. Sunday, when the store is
+  // closed) is a perfectly valid, empty-but-loaded state, not a failure to load.
   function waitForRosterReady(timeoutMs) {
     return new Promise((resolve, reject) => {
       const start = Date.now();
@@ -1194,7 +1270,8 @@ const SCRIPTS = {
         let ready = false;
         try {
           ready = newTab.document.readyState === 'complete' &&
-                  !!newTab.document.querySelector('tbody[aria-live="polite"] tr[role="row"]');
+                  !!newTab.document.querySelector('tbody[aria-live="polite"]') &&
+                  !!getDateInput();
         } catch (e) {}
         if (ready) { resolve(); return; }
         if (Date.now() - start > timeoutMs) { reject(new Error('Timed out waiting for the Daily Roster page to load.')); return; }
@@ -1213,11 +1290,14 @@ const SCRIPTS = {
     const monday = new Date(currentDate);
     monday.setDate(currentDate.getDate() - (dayOfWeek === 0 ? 6 : dayOfWeek - 1));
 
+    const filterWarning = await checkScheduleFilter();
+
     newTab.sessionStorage.removeItem('hs_week_data');
     for (let offset = 0; offset < 6; offset++) {
       const target = new Date(monday);
       target.setDate(monday.getDate() + offset);
-      showBanner('scraping ' + dayNames[target.getDay()] + ' ' + (target.getMonth()+1) + '/' + target.getDate() + ' (' + (offset+1) + ' of 6) — this tab will jump to your results automatically, no need to do anything.', false);
+      const progress = 'scraping ' + dayNames[target.getDay()] + ' ' + (target.getMonth()+1) + '/' + target.getDate() + ' (' + (offset+1) + ' of 6) — this tab will jump to your results automatically, no need to do anything.';
+      showBanner(filterWarning ? filterWarning + ' | ' + progress : progress, false);
       await setDateAndWait(target);
       scrapeCurrentDay();
     }
@@ -1231,14 +1311,14 @@ const SCRIPTS = {
 
     try {
       const result = await compressData(data);
-      newTab.location.href = TOOL_URL + '#' + result.key + '=' + result.data;
+      newTab.location.href = TOOL_URL + cacheBust() + '#' + result.key + '=' + result.data;
     } catch(e) {
       fail('Scraped the schedule, but could not build the results link (' + e.message + ').');
     }
   }
 
   async function run() {
-    newTab.location.href = DAILY_ROSTER_BASE + todayFormatted();
+    newTab.location.href = DAILY_ROSTER_BASE + cacheBust() + '#roster/' + (targetDateFromCurrentUrl() || todayFormatted());
     try {
       await waitForRosterReady(25000);
     } catch (e) {
