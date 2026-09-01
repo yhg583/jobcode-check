@@ -1186,7 +1186,10 @@ const SCRIPTS = {
   }
 
   // Poll the popup (now navigating through real HotSchedules pages, possibly a
-  // login screen first) until it actually renders roster rows, or give up.
+  // login screen first) until it actually shows the Daily Roster page structure.
+  // Deliberately checks for the roster table + date picker existing, NOT for at
+  // least one shift row — a day with zero shifts (e.g. Sunday, when the store is
+  // closed) is a perfectly valid, empty-but-loaded state, not a failure to load.
   function waitForRosterReady(timeoutMs) {
     return new Promise((resolve, reject) => {
       const start = Date.now();
@@ -1194,7 +1197,8 @@ const SCRIPTS = {
         let ready = false;
         try {
           ready = newTab.document.readyState === 'complete' &&
-                  !!newTab.document.querySelector('tbody[aria-live="polite"] tr[role="row"]');
+                  !!newTab.document.querySelector('tbody[aria-live="polite"]') &&
+                  !!getDateInput();
         } catch (e) {}
         if (ready) { resolve(); return; }
         if (Date.now() - start > timeoutMs) { reject(new Error('Timed out waiting for the Daily Roster page to load.')); return; }
