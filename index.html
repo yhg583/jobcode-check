@@ -1135,6 +1135,45 @@ const SCRIPTS = {
   }
   function fail(msg) { showBanner(msg, true); }
 
+  // Read-only check of the Schedules filter (top of the Daily Roster page) --
+  // if a group like "Delivery" or "Leadership" got unchecked, the scrape would
+  // silently only see a partial roster. Never touches a checkbox: only clicks
+  // the dropdown's own open/close toggle to read the list, then closes it
+  // again, so this can't accidentally change what's selected.
+  function checkScheduleFilter() {
+    return new Promise(resolve => {
+      try {
+        const btn = newTab.document.querySelector('.navigation.multi-select[data-group="schedules"]');
+        const span = btn ? btn.querySelector('span') : null;
+        const summary = span ? span.textContent.trim() : '';
+        const m = summary.match(/(\\d+)\\s+of\\s+(\\d+)\\s+Selected/i);
+        if (!m || m[1] === m[2]) { resolve(null); return; }
+
+        btn.click();
+        setTimeout(() => {
+          const unchecked = [];
+          try {
+            const popout = newTab.document.getElementById('filter-select');
+            if (popout) {
+              popout.querySelectorAll('.checkbox').forEach(row => {
+                const input = row.querySelector('input[type="checkbox"]');
+                const label = row.querySelector('.checkbox-label');
+                if (input && label && !input.checked && input.getAttribute('data-id') !== '-1') {
+                  unchecked.push(label.textContent.trim());
+                }
+              });
+            }
+          } catch (e) {}
+          try { btn.click(); } catch (e) {}
+          const detail = unchecked.length ? ' (' + unchecked.join(', ') + ' unchecked)' : '';
+          resolve('Schedules filter is ' + m[1] + ' of ' + m[2] + ' selected' + detail + ' -- results may be incomplete.');
+        }, 400);
+      } catch (e) {
+        resolve(null);
+      }
+    });
+  }
+
   function parseDateLabel(str) {
     if (!str) return null;
     const d = new Date(str);
@@ -1251,11 +1290,14 @@ const SCRIPTS = {
     const monday = new Date(currentDate);
     monday.setDate(currentDate.getDate() - (dayOfWeek === 0 ? 6 : dayOfWeek - 1));
 
+    const filterWarning = await checkScheduleFilter();
+
     newTab.sessionStorage.removeItem('hs_week_data');
     for (let offset = 0; offset < 6; offset++) {
       const target = new Date(monday);
       target.setDate(monday.getDate() + offset);
-      showBanner('scraping ' + dayNames[target.getDay()] + ' ' + (target.getMonth()+1) + '/' + target.getDate() + ' (' + (offset+1) + ' of 6) — this tab will jump to your results automatically, no need to do anything.', false);
+      const progress = 'scraping ' + dayNames[target.getDay()] + ' ' + (target.getMonth()+1) + '/' + target.getDate() + ' (' + (offset+1) + ' of 6) — this tab will jump to your results automatically, no need to do anything.';
+      showBanner(filterWarning ? filterWarning + ' | ' + progress : progress, false);
       await setDateAndWait(target);
       scrapeCurrentDay();
     }
