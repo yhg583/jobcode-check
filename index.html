@@ -1064,11 +1064,45 @@ const SCRIPTS = {
 
   'autoRunScript-src': `(function(){
   const TOOL_URL = ${JSON.stringify(location.origin + location.pathname)};
-  const DAILY_ROSTER_BASE = 'https://app.hotschedules.com/hs/newReport.hs#roster/';
+  const DAILY_ROSTER_BASE = 'https://app.hotschedules.com/hs/newReport.hs';
   const dayNames = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+
+  // Chromium quirk: an about:blank popup inherits its opener's URL as a base for
+  // navigation comparison. If the popup's target happens to share the same path
+  // as wherever the bookmarklet was clicked from (e.g. clicking it again from
+  // Daily Roster itself) and differs only by hash, location.href assignment gets
+  // silently treated as an in-page anchor jump instead of a real navigation -- no
+  // network request, no reload, the tab just sits there forever. A cache-busting
+  // query param makes the path+query always genuinely different, forcing a real
+  // navigation every time regardless of where this was clicked from.
+  function cacheBust() { return '?_jcc=' + Date.now(); }
 
   function todayFormatted() {
     const d = new Date();
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const dd = String(d.getDate()).padStart(2, '0');
+    return d.getFullYear() + '-' + mm + '-' + dd;
+  }
+
+  // HotSchedules' hash-routed pages (Scheduling: #week/2026-09-06, Daily Roster:
+  // #roster/2026-08-16) encode the week you're actually looking at right in the
+  // URL. Pull that from wherever the bookmarklet was clicked so it opens the
+  // Daily Roster for the week you're working on, not just today's real date.
+  function targetDateFromCurrentUrl() {
+    const m = location.href.match(/(\\d{4}-\\d{2}-\\d{2})/);
+    if (!m) return null;
+    const d = new Date(m[1] + 'T00:00:00');
+    if (isNaN(d)) return null;
+    // Scheduling's #week/ labels a week by its LEADING Sunday (e.g. #week/2026-09-06
+    // for the Sun 9/6 - Sat 9/12 week) -- the opposite of the standard Mon-Sun
+    // convention runFullWeek uses below to find "this week's Monday" (where a
+    // Sunday is treated as the LAST day of the PRECEDING week). Left alone, a
+    // Sunday pulled straight from #week/ would resolve one week too early.
+    // Nudging the date forward by a day fixes that (a Sunday week-label becomes
+    // the Monday that actually starts its business week) and is a no-op for
+    // every other day of the week, since Mon-Sat all stay within the same week
+    // either way.
+    d.setDate(d.getDate() + 1);
     const mm = String(d.getMonth() + 1).padStart(2, '0');
     const dd = String(d.getDate()).padStart(2, '0');
     return d.getFullYear() + '-' + mm + '-' + dd;
@@ -1235,14 +1269,14 @@ const SCRIPTS = {
 
     try {
       const result = await compressData(data);
-      newTab.location.href = TOOL_URL + '#' + result.key + '=' + result.data;
+      newTab.location.href = TOOL_URL + cacheBust() + '#' + result.key + '=' + result.data;
     } catch(e) {
       fail('Scraped the schedule, but could not build the results link (' + e.message + ').');
     }
   }
 
   async function run() {
-    newTab.location.href = DAILY_ROSTER_BASE + todayFormatted();
+    newTab.location.href = DAILY_ROSTER_BASE + cacheBust() + '#roster/' + (targetDateFromCurrentUrl() || todayFormatted());
     try {
       await waitForRosterReady(25000);
     } catch (e) {
