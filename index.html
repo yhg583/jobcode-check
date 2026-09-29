@@ -2076,6 +2076,10 @@ function splitOverlappingRanges(ranges) {
 }
 
 // ─── Main check ───────────────────────────────────────────────────────────────
+// Snapshot of the most recent Run Check ({ gapMins, days: { day: daySnapshot } }),
+// used by Share Results — see buildDaySnapshot for why it's not just the rendered HTML.
+let lastCheckData = null;
+
 function runCheck() {
   const resultsEl = document.getElementById('results');
   resultsEl.innerHTML = '';
@@ -2085,8 +2089,6 @@ function runCheck() {
     resultsEl.innerHTML = '<div class="error-msg">Paste schedule data first (from the console dump script).</div>';
     return;
   }
-
-  let placement = null; // per-day profiles used inside the loop
 
   const gapToleranceRaw = parseInt(document.getElementById('gapTolerance').value);
   const gapMins = Number.isNaN(gapToleranceRaw) ? 15 : gapToleranceRaw;
@@ -2116,26 +2118,19 @@ function runCheck() {
 
   // Group by day
   const days = [...new Set(parsed.map(s => s.day))];
-
-  let totalOk = 0, totalPartial = 0, totalMissing = 0;
-  const dayHtml = {};    // day → array of html strings
-  const dayResults = {}; // day → slotResults array (for tab dot indicators)
+  const daySnapshots = {}; // day → compact snapshot (see buildDaySnapshot)
 
   for (const day of days) {
-    dayHtml[day] = [];
-    dayResults[day] = [];
-    const h = dayHtml[day]; // shorthand
-
     // Look up the right placement profile for this day
     const profileKey = profileForDay(day);
     if (!profileKey) {
-      h.push(`<div class="day-section"><div class="day-header" style="color:var(--muted)">${escapeHtml(day)} <span class="day-stats">skipped (no profile)</span></div></div>`);
+      daySnapshots[day] = { skipped: 'no-profile' };
       continue;
     }
     const profileData = loadProfile(profileKey);
     const placement = profileData?.data || [];
     if (placement.length === 0) {
-      h.push(`<div class="day-section"><div class="day-header">${escapeHtml(day)} <span class="day-stats" style="color:var(--accent)">no placement loaded for this day type</span></div></div>`);
+      daySnapshots[day] = { skipped: 'no-placement' };
       continue;
     }
 
@@ -2196,13 +2191,10 @@ function runCheck() {
       let status;
       if (segments.length === 0) {
         status = 'missing';
-        totalMissing++;
       } else if (covered) {
         status = 'ok';
-        totalOk++;
       } else {
         status = 'partial';
-        totalPartial++;
       }
       // Store segments and touched shifts for later day-level extra calc
       const touchedShifts = segments.map(seg => seg.shift);
@@ -2264,120 +2256,188 @@ function runCheck() {
       }
     }
 
-    // Store results for tab dot indicators
-    dayResults[day] = slotResults;
+    daySnapshots[day] = buildDaySnapshot(slotResults, extraChips, unmatched);
+  }
 
-    // Render day
-    const fohSlots      = slotResults.filter(r => r.slot.type === 'FOH');
-    const bohSlots      = slotResults.filter(r => r.slot.type === 'BOH');
-    const leadFohSlots  = slotResults.filter(r => r.slot.type === 'LEAD_FOH');
-    const leadBohSlots  = slotResults.filter(r => r.slot.type === 'LEAD_BOH');
-    const financialSlots = slotResults.filter(r => r.slot.type === 'FINANCIAL');
-    const otherSlots    = slotResults.filter(r => r.slot.type === 'OTHER');
+  resultsEl.innerHTML = renderFullResultsHtml(daySnapshots, gapMins);
+  lastCheckData = { gapMins, days: daySnapshots };
+}
 
-    const dayOk = slotResults.filter(r => r.status === 'ok').length;
-    const dayMissing = slotResults.filter(r => r.status === 'missing').length;
+// Strips a day's computed results down to just what renderDayPanelHtml needs to
+// redraw it — dropping touchedShifts and the full raw shift objects (day/time/job
+// strings already baked into the day label and slot windows). This is what Share
+// Results actually serializes, instead of the rendered HTML itself: a real week
+// with a full placement and heavy overlap can render to a very large, very
+// repetitive markup blob, while this compact form compresses to a fraction of
+// the size and still reconstructs pixel-identical output via renderDayPanelHtml.
+function buildDaySnapshot(slotResults, extraChips, unmatched) {
+  return {
+    slotResults: slotResults.map(r => ({
+      slot: { name: r.slot.name, type: r.slot.type },
+      window: { start: r.window.start, end: r.window.end },
+      status: r.status,
+      firstGap: r.firstGap,
+      chain: r.chain.map(seg => ({
+        claimedStart: seg.claimedStart,
+        claimedEnd: seg.claimedEnd,
+        shift: { cat: seg.shift.cat, raw: { name: seg.shift.raw.name } },
+      })),
+    })),
+    extraChips: extraChips.map(c => ({ cat: c.cat, start: c.start, end: c.end })),
+    unmatched: unmatched.map(s => ({ cat: s.cat, raw: { time: s.raw.time, job: s.raw.job, name: s.raw.name } })),
+  };
+}
 
-    h.push(`<div class="day-section">`);
-    h.push(`<div class="day-header">${escapeHtml(day)} <span class="day-stats">${dayOk}/${slotResults.length} covered · ${dayMissing} missing</span></div>`);
+// Renders one day's panel HTML from its snapshot. The single code path used by
+// both the live Run Check and the read-only Share Results view, so the two can
+// never visually drift apart.
+function renderDayPanelHtml(day, daySnapshot, gapMins) {
+  if (daySnapshot.skipped === 'no-profile') {
+    return `<div class="day-section"><div class="day-header" style="color:var(--muted)">${escapeHtml(day)} <span class="day-stats">skipped (no profile)</span></div></div>`;
+  }
+  if (daySnapshot.skipped === 'no-placement') {
+    return `<div class="day-section"><div class="day-header">${escapeHtml(day)} <span class="day-stats" style="color:var(--accent)">no placement loaded for this day type</span></div></div>`;
+  }
 
-    for (const [label, group, cls] of [
-      ['FOH', fohSlots, 'foh'],
-      ['FOH Leadership', leadFohSlots, 'lead'],
-      ['BOH', bohSlots, 'boh'],
-      ['BOH Leadership', leadBohSlots, 'lead'],
-      ['Financial', financialSlots, 'other'],
-      ['Other', otherSlots, '']
-    ]) {
-      if (group.length === 0) continue;
-      h.push(`<div class="section-header tag-${cls}">${label}</div>`);
-      for (const r of group) {
-        h.push(renderSlotRow(r, gapMins));
+  const { slotResults, extraChips, unmatched } = daySnapshot;
+  const catOrder = ['FOH', 'LEAD_FOH', 'BOH', 'LEAD_BOH', 'FINANCIAL', 'OTHER'];
+  const h = [];
+
+  const fohSlots      = slotResults.filter(r => r.slot.type === 'FOH');
+  const bohSlots      = slotResults.filter(r => r.slot.type === 'BOH');
+  const leadFohSlots  = slotResults.filter(r => r.slot.type === 'LEAD_FOH');
+  const leadBohSlots  = slotResults.filter(r => r.slot.type === 'LEAD_BOH');
+  const financialSlots = slotResults.filter(r => r.slot.type === 'FINANCIAL');
+  const otherSlots    = slotResults.filter(r => r.slot.type === 'OTHER');
+
+  const dayOk = slotResults.filter(r => r.status === 'ok').length;
+  const dayMissing = slotResults.filter(r => r.status === 'missing').length;
+
+  h.push(`<div class="day-section">`);
+  h.push(`<div class="day-header">${escapeHtml(day)} <span class="day-stats">${dayOk}/${slotResults.length} covered · ${dayMissing} missing</span></div>`);
+
+  for (const [label, group, cls] of [
+    ['FOH', fohSlots, 'foh'],
+    ['FOH Leadership', leadFohSlots, 'lead'],
+    ['BOH', bohSlots, 'boh'],
+    ['BOH Leadership', leadBohSlots, 'lead'],
+    ['Financial', financialSlots, 'other'],
+    ['Other', otherSlots, '']
+  ]) {
+    if (group.length === 0) continue;
+    h.push(`<div class="section-header tag-${cls}">${label}</div>`);
+    for (const r of group) {
+      h.push(renderSlotRow(r, gapMins));
+    }
+  }
+
+  // Extra + Missing summary row
+  const hasSummary = extraChips.length > 0 || unmatched.length > 0 ||
+    slotResults.some(r => r.status === 'missing' || r.status === 'partial');
+
+  if (hasSummary) {
+    h.push(`<div class="unmatched-section" style="display:flex;gap:28px;flex-wrap:wrap;">`);
+
+    if (extraChips.length > 0) {
+      h.push(`<div style="flex:1;min-width:200px;"><h4>Extra coverage</h4><div style="margin-top:6px;display:flex;flex-wrap:wrap;gap:4px;">`);
+      for (const c of extraChips) {
+        const catLabel = { 'FOH':'FOH','BOH':'BOH','LEAD_FOH':'Lead-FOH','LEAD_BOH':'Lead-BOH','FINANCIAL':'Fin','OTHER':'Other' }[c.cat] || '';
+        h.push(`<span class="unmatched-shift" style="color:var(--accent2);border-color:rgba(245,158,11,0.3);"><span style="opacity:0.5;font-size:10px;margin-right:4px;">${catLabel}</span>${fmtMins(c.start)}–${fmtMins(c.end)}</span>`);
       }
+      h.push(`</div></div>`);
     }
 
-    // Extra + Missing summary row
-    const hasSummary = extraChips.length > 0 || unmatched.length > 0 ||
-      slotResults.some(r => r.status === 'missing' || r.status === 'partial');
-
-    if (hasSummary) {
-      h.push(`<div class="unmatched-section" style="display:flex;gap:28px;flex-wrap:wrap;">`);
-
-      if (extraChips.length > 0) {
-        h.push(`<div style="flex:1;min-width:200px;"><h4>Extra coverage</h4><div style="margin-top:6px;display:flex;flex-wrap:wrap;gap:4px;">`);
-        for (const c of extraChips) {
-          const catLabel = { 'FOH':'FOH','BOH':'BOH','LEAD_FOH':'Lead-FOH','LEAD_BOH':'Lead-BOH','FINANCIAL':'Fin','OTHER':'Other' }[c.cat] || '';
-          h.push(`<span class="unmatched-shift" style="color:var(--accent2);border-color:rgba(245,158,11,0.3);"><span style="opacity:0.5;font-size:10px;margin-right:4px;">${catLabel}</span>${fmtMins(c.start)}–${fmtMins(c.end)}</span>`);
-        }
-        h.push(`</div></div>`);
+    const missingSlots = slotResults.filter(r => r.status === 'missing' || r.status === 'partial');
+    if (missingSlots.length > 0) {
+      // Generalize per-slot gaps back to the underlying HS job code (FOH General,
+      // BOH General, etc). Overlapping/adjacent gaps within the same job code merge
+      // into one range; distinct, non-touching gaps stay as separate entries.
+      const catLabelMap = { FOH: 'FOH General', BOH: 'BOH General', LEAD_FOH: 'FOH Leadership', LEAD_BOH: 'BOH Leadership', FINANCIAL: 'Financial', OTHER: 'Other' };
+      const gapsByCat = {};
+      for (const r of missingSlots) {
+        const gaps = computeUncoveredRanges(r.window.start, r.window.end, r.chain, gapMins);
+        (gapsByCat[r.slot.type] = gapsByCat[r.slot.type] || []).push(...gaps);
       }
-
-      const missingSlots = slotResults.filter(r => r.status === 'missing' || r.status === 'partial');
-      if (missingSlots.length > 0) {
-        // Generalize per-slot gaps back to the underlying HS job code (FOH General,
-        // BOH General, etc). Overlapping/adjacent gaps within the same job code merge
-        // into one range; distinct, non-touching gaps stay as separate entries.
-        const catLabelMap = { FOH: 'FOH General', BOH: 'BOH General', LEAD_FOH: 'FOH Leadership', LEAD_BOH: 'BOH Leadership', FINANCIAL: 'Financial', OTHER: 'Other' };
-        const gapsByCat = {};
-        for (const r of missingSlots) {
-          const gaps = computeUncoveredRanges(r.window.start, r.window.end, r.chain, gapMins);
-          (gapsByCat[r.slot.type] = gapsByCat[r.slot.type] || []).push(...gaps);
+      h.push(`<div style="flex:1;min-width:200px;"><h4>Missing / incomplete</h4><div style="margin-top:6px;display:flex;flex-wrap:wrap;gap:4px;">`);
+      for (const cat of catOrder) {
+        const ranges = gapsByCat[cat];
+        if (!ranges || ranges.length === 0) continue;
+        const label = catLabelMap[cat] || cat;
+        for (const g of splitOverlappingRanges(ranges)) {
+          h.push(`<span class="unmatched-shift" style="color:#fca5a5;border-color:rgba(232,65,42,0.3);"><span style="opacity:0.7">${label}:</span> ${fmtMins(g.start)}–${fmtMins(g.end)}</span>`);
         }
-        h.push(`<div style="flex:1;min-width:200px;"><h4>Missing / incomplete</h4><div style="margin-top:6px;display:flex;flex-wrap:wrap;gap:4px;">`);
-        for (const cat of catOrder) {
-          const ranges = gapsByCat[cat];
-          if (!ranges || ranges.length === 0) continue;
-          const label = catLabelMap[cat] || cat;
-          for (const g of splitOverlappingRanges(ranges)) {
-            h.push(`<span class="unmatched-shift" style="color:#fca5a5;border-color:rgba(232,65,42,0.3);"><span style="opacity:0.7">${label}:</span> ${fmtMins(g.start)}–${fmtMins(g.end)}</span>`);
-          }
-        }
-        h.push(`</div></div>`);
       }
+      h.push(`</div></div>`);
+    }
 
-      if (unmatched.length > 0) {
-        h.push(`<div style="flex:1;min-width:200px;"><h4>Unmatched shifts</h4><div style="margin-top:6px;display:flex;flex-wrap:wrap;gap:4px;">`);
-        for (const s of unmatched) {
-          const catCls = (s.cat || 'other').toLowerCase().replace('_','-');
-          h.push(`<span class="unmatched-shift"><span class="chain-seg ${catCls}" style="margin-right:4px;">${escapeHtml(s.raw.time)}</span>${escapeHtml(s.raw.job||'?')}<span style="opacity:0.6;font-size:10px;margin-left:5px;">${escapeHtml(s.raw.name)}</span></span>`);
-        }
-        h.push(`</div></div>`);
+    if (unmatched.length > 0) {
+      h.push(`<div style="flex:1;min-width:200px;"><h4>Unmatched shifts</h4><div style="margin-top:6px;display:flex;flex-wrap:wrap;gap:4px;">`);
+      for (const s of unmatched) {
+        const catCls = (s.cat || 'other').toLowerCase().replace('_','-');
+        h.push(`<span class="unmatched-shift"><span class="chain-seg ${catCls}" style="margin-right:4px;">${escapeHtml(s.raw.time)}</span>${escapeHtml(s.raw.job||'?')}<span style="opacity:0.6;font-size:10px;margin-left:5px;">${escapeHtml(s.raw.name)}</span></span>`);
       }
-
-      h.push(`</div>`);
+      h.push(`</div></div>`);
     }
 
     h.push(`</div>`);
   }
 
-  const summaryHtml = `
+  h.push(`</div>`);
+  return h.join('');
+}
+
+function buildSummaryBarHtml(totalOk, totalPartial, totalMissing) {
+  return `
     <div class="summary-bar">
       <div class="summary-stat"><span class="val s-ok">${totalOk}</span><span class="lbl">Fully Covered</span></div>
       <div class="summary-stat"><span class="val s-partial">${totalPartial}</span><span class="lbl">Partial</span></div>
       <div class="summary-stat"><span class="val s-missing">${totalMissing}</span><span class="lbl">Missing</span></div>
     </div>
   `;
+}
 
-  // Build day tab nav
-  const firstDay = days[0];
-  const dayTabNav = `<div class="day-tabs" id="dayTabNav" style="display:flex;flex-wrap:wrap;gap:0;border-bottom:1px solid var(--border);margin-bottom:24px;">
+function buildDayTabNavHtml(days, dayResultsForDots) {
+  return `<div class="day-tabs" id="dayTabNav" style="display:flex;flex-wrap:wrap;gap:0;border-bottom:1px solid var(--border);margin-bottom:24px;">
     ${days.map((day, i) => {
-      const dayOk = dayResults[day].filter(r => r.status === 'ok').length;
-      const dayMissing = dayResults[day].filter(r => r.status === 'missing').length;
-      const dayPartial = dayResults[day].filter(r => r.status === 'partial').length;
+      const slotResults = dayResultsForDots[day] || [];
+      const dayMissing = slotResults.filter(r => r.status === 'missing').length;
+      const dayPartial = slotResults.filter(r => r.status === 'partial').length;
       const dot = dayMissing > 0 ? `<span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--accent);margin-left:5px;vertical-align:middle;"></span>`
         : dayPartial > 0 ? `<span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--accent2);margin-left:5px;vertical-align:middle;"></span>`
         : `<span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--boh);margin-left:5px;vertical-align:middle;"></span>`;
       return `<div class="day-tab ${i===0?'active':''}" onclick="switchDayTab(${escapeHtml(JSON.stringify(day))})" id="dtab-${day.replace(/[^a-z0-9]/gi,'_')}" style="padding:10px 16px;font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:0.08em;text-transform:uppercase;cursor:pointer;color:${i===0?'var(--text)':'var(--muted)'};border-bottom:2px solid ${i===0?'var(--accent)':'transparent'};margin-bottom:-1px;transition:color 0.15s,border-color 0.15s;white-space:nowrap;">${escapeHtml(day)}${dot}</div>`;
     }).join('')}
   </div>`;
+}
 
-  // Build day panel divs
+// Turns a { day: daySnapshot } map into the full results HTML (summary bar +
+// day tabs + panels). The single entry point both Run Check and the shared
+// read-only view use, so a shared link can be rebuilt from compact data alone.
+function renderFullResultsHtml(daySnapshots, gapMins) {
+  const days = Object.keys(daySnapshots);
+  let totalOk = 0, totalPartial = 0, totalMissing = 0;
+  const dayHtml = {};
+  const dayResultsForDots = {};
+
+  for (const day of days) {
+    const snap = daySnapshots[day];
+    const slotResults = snap.skipped ? [] : snap.slotResults;
+    dayResultsForDots[day] = slotResults;
+    for (const r of slotResults) {
+      if (r.status === 'ok') totalOk++;
+      else if (r.status === 'partial') totalPartial++;
+      else if (r.status === 'missing') totalMissing++;
+    }
+    dayHtml[day] = renderDayPanelHtml(day, snap, gapMins);
+  }
+
+  const summaryHtml = buildSummaryBarHtml(totalOk, totalPartial, totalMissing);
+  const dayTabNav = buildDayTabNavHtml(days, dayResultsForDots);
   const dayPanelsHtml = days.map((day, i) =>
-    `<div class="day-panel" id="dpanel-${day.replace(/[^a-z0-9]/gi,'_')}" style="display:${i===0?'block':'none'};">${dayHtml[day].join('')}</div>`
+    `<div class="day-panel" id="dpanel-${day.replace(/[^a-z0-9]/gi,'_')}" style="display:${i===0?'block':'none'};">${dayHtml[day]}</div>`
   ).join('');
 
-  resultsEl.innerHTML = summaryHtml + dayTabNav + dayPanelsHtml;
+  return summaryHtml + dayTabNav + dayPanelsHtml;
 }
 
 function switchDayTab(day) {
@@ -2540,8 +2600,7 @@ async function decompressString(b64url, isCompressed) {
 
 async function shareResults() {
   const statusEl = document.getElementById('shareStatus');
-  const html = document.getElementById('results').innerHTML.trim();
-  if (!html) {
+  if (!lastCheckData || Object.keys(lastCheckData.days).length === 0) {
     statusEl.textContent = 'Run a check first.';
     statusEl.style.color = 'var(--accent)';
     return;
@@ -2549,7 +2608,8 @@ async function shareResults() {
   statusEl.textContent = 'Building link…';
   statusEl.style.color = 'var(--muted)';
   try {
-    const { data, compressed } = await compressString(html);
+    const json = JSON.stringify(lastCheckData);
+    const { data, compressed } = await compressString(json);
     const hashKey = compressed ? 'shared' : 'shared_raw';
     const url = `${location.origin}${location.pathname}#${hashKey}=${data}`;
     const sizeKb = (url.length / 1024).toFixed(1);
@@ -2569,12 +2629,16 @@ async function shareResults() {
 
 // If the URL carries a shared-results link, render it read-only and skip the
 // normal interactive tool entirely — no placement, no schedule paste needed.
+// The link carries compact snapshot data (see buildDaySnapshot), not rendered
+// HTML, and renderFullResultsHtml rebuilds the exact same output from it.
 async function checkSharedView() {
   const m = location.hash.match(/^#(shared|shared_raw)=(.+)$/);
   if (!m) return false;
   const [, hashKey, data] = m;
   try {
-    const html = await decompressString(data, hashKey === 'shared');
+    const json = await decompressString(data, hashKey === 'shared');
+    const snapshot = JSON.parse(json);
+    const html = renderFullResultsHtml(snapshot.days, snapshot.gapMins);
     document.querySelector('.tabs').style.display = 'none';
     document.querySelectorAll('.panel').forEach(p => { p.style.display = 'none'; });
     document.getElementById('sharedOpenLive').href = location.origin + location.pathname;
